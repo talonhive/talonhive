@@ -30,6 +30,7 @@ jobs:
         run: |
           V="${GITHUB_SHA::7}"
           sed -i "s#src=\"\./app\.js\"#src=\"./app.js?v=$V\"#" web/index.html
+          sed -i "s#href=\"\./favicon\.svg\"#href=\"./favicon.svg?v=$V\"#; s#href=\"\./apple-touch-icon\.png\"#href=\"./apple-touch-icon.png?v=$V\"#" web/index.html
           sed -i "s#from \"\./config\.js\"#from \"./config.js?v=$V\"#; s#from \"\./boc\.js\"#from \"./boc.js?v=$V\"#" web/app.js
           grep -q "app.js?v=$V" web/index.html && grep -q "config.js?v=$V" web/app.js && grep -q "boc.js?v=$V" web/app.js
       - uses: actions/configure-pages@v5
