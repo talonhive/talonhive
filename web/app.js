@@ -628,6 +628,17 @@ async function main() {
     tab = b.dataset.tab; $$("#tabs button").forEach((x) => x.setAttribute("aria-selected", x === b)); renderRows();
   }));
   $("#rows").addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("row")) { e.preventDefault(); e.target.click(); } });
+  // Installable app (PWA): service worker for a resilient shell, and an Install button where supported.
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("./sw.js").catch(() => { /* optional */ });
+  let deferredInstall = null;
+  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferredInstall = e; $("#btn-install").hidden = false; });
+  window.addEventListener("appinstalled", () => { deferredInstall = null; $("#btn-install").hidden = true; toast("TalonHive Swap installed"); });
+  $("#btn-install").addEventListener("click", async () => {
+    if (!deferredInstall) return;
+    deferredInstall.prompt();
+    await deferredInstall.userChoice.catch(() => null);
+    deferredInstall = null; $("#btn-install").hidden = true;
+  });
   renderHome();
   await refresh();
   setInterval(refresh, POLL_MS);

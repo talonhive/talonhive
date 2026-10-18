@@ -62,7 +62,11 @@ def write_svg(paths):
     return vb
 
 
-def render(paths, vb, size, invert=False, background="#ffffff", ss=4):
+def render(paths, vb, size, invert=False, background="#ffffff", ss=4, scale=1.0):
+    """scale < 1 shrinks the mark inside the canvas (padding for app icons / maskable safe zone)."""
+    if scale != 1.0:
+        cx, cy, side = vb[0] + vb[2] / 2, vb[1] + vb[3] / 2, vb[2] / scale
+        vb = (cx - side / 2, cy - side / 2, side, side)
     S = size * ss
     k = S / vb[2]
     mask = np.zeros((S, S), dtype=bool)
@@ -88,3 +92,11 @@ if __name__ == "__main__":
         path = OUT / name
         im.save(path, "WEBP", quality=95, method=6) if name.endswith(".webp") else im.save(path)
         print("wrote", path.relative_to(HERE.parent))
+    # App (PWA) icons: white mark on black, the dark brand look on home screens.
+    WEB = HERE.parent / "web" / "icons"
+    WEB.mkdir(exist_ok=True)
+    for name, size, scale in [("icon-192.png", 192, 0.86), ("icon-512.png", 512, 0.86),
+                              ("icon-maskable-512.png", 512, 0.62),   # inside the 80% maskable safe circle
+                              ("apple-touch-icon.png", 180, 0.80)]:
+        render(paths, vb, size, invert=True, scale=scale).save(WEB / name)
+        print("wrote", (WEB / name).relative_to(HERE.parent))
