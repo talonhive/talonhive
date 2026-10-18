@@ -1,4 +1,7 @@
-# NACKL-Swap — Project Brief
+# TalonHive Swap — Project Brief
+
+> Brand: **TalonHive** (ecosystem) · **TalonHive Swap** (this app, formerly NACKL-Swap) · **TalonHive Mine** (Bee Engine mining, planned).
+> Repo: github.com/talonhive/talonhive · Site: https://talonhive.github.io/talonhive/ · Mark: `brand/` (black & white).
 
 > Read this first in any new session. It is the single source of truth for what we are
 > building, why, what is decided, and what is next.
@@ -53,7 +56,7 @@ my lots + cancel payload. Demo data: `tests/demo_lots.sh`. Keeper clean-up by sc
 external messages deferred (needs Acki Nacki's message-submission format).
 **Found by the demo: F13** (factory ledger inflated by flag-16 SHELL blocked SHELL-giving lots). Fixed + P13 added.
 **Run 8:** F13 fix verified (P13 all pass; 89/89 with the corrected NACKL-conservation check). Web app now on factory `4b836d38…`.
-UI redesigned for everyday users (Buy · Sell · List, bottom sheets). Outreach drafts: `docs/MESSAGES_2026-09-30.md`. Name: NACKL-Swap for now (candidates: LobSwap, Marble Swap).
+UI redesigned for everyday users (Buy · Sell · List, bottom sheets). Outreach drafts: `docs/MESSAGES_2026-09-30.md`. Renamed to TalonHive Swap (2026-10-18); monochrome brand, traced mark in `brand/`.
 Mainnet still requires an independent audit. `contracts/AtomicSwap.sol` + `contracts/SwapFactory.sol`
 compile (sold 0.81, `--tvm-version gosh`). Test suite: `tests/run_phase1.sh` (46 on-chain checks). Results: `tests/RESULTS.md` (runs 1–5).
 See `spikes/README.md` and `spikes/RESULTS.md`.

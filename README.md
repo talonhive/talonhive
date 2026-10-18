@@ -1,4 +1,9 @@
-# NACKL-Swap
+# TalonHive Swap
+
+<img src="brand/out/talonhive-mark-180.png" width="72" alt="TalonHive mark">
+
+**TalonHive** is a small ecosystem of honest, non-custodial apps on Acki Nacki. **TalonHive Swap** is the first.
+
 
 **Non-custodial, peer-to-peer swaps for Acki Nacki native currencies**, starting with NACKL ↔ SHELL
 (and NACKL ↔ USDC).
@@ -52,6 +57,12 @@ Toolchain (WSL/Linux): `sold` 0.81 (gosh) and `tvm-cli` 3.0.6.an. See [`tools/SE
 cd tests && bash run_phase2a.sh            # full suite on Shellnet (~25 min); creates its own test keys
 node web/test_boc.mjs                      # web decoder/encoder tests
 python -m http.server 8765 --directory web # then open http://localhost:8765
+```
+
+Live (Shellnet): https://talonhive.github.io/talonhive/
+
+```bash
+python brand/build_mark.py                  # rebuild the logo SVG + WebP/PNG sizes from brand/reference-mark.jpg
 ```
 
 Test keys are generated locally on first run and are **Shellnet-only**. Never use them, or put a mainnet

@@ -1,4 +1,4 @@
-// NACKL-Swap web app: reads lots straight from the chain (no backend) and guides pay-to-take.
+// TalonHive Swap web app: reads lots straight from the chain (no backend) and guides pay-to-take.
 // The page never asks for keys or seed phrases and never holds coins.
 import {
   NETWORKS, DEFAULT_NETWORK, CURRENCIES, PAIRS, FEE_BPS, MAX_TTL_SECONDS, EVENTS_TO_SCAN, POLL_MS, ABI,
@@ -341,7 +341,7 @@ function viewTake(lotHex) {
           <dt>Offer</dt><dd>#${esc(l.nonce)}</dd>
           <dt>Expires</dt><dd>${new Date(l.deadline * 1000).toLocaleString()}</dd>
           <dt>Fee</dt><dd>${Number(FEE_BPS) / 100}%, taken from what the offer's creator receives. You pay exactly the price.</dd>
-          <dt>Verified</dt><dd>Created by the NACKL-Swap factory and read straight from the blockchain.</dd>
+          <dt>Verified</dt><dd>Created by the TalonHive Swap factory and read straight from the blockchain.</dd>
           <dt>Privacy</dt><dd>Like every Acki Nacki transfer, trades are public on the blockchain. This site shows nicknames, not wallet addresses.</dd>
         </dl>
         <details class="more" style="margin:0 0 12px"><summary>Technical details</summary><dl>
@@ -511,7 +511,7 @@ function viewListResult(q) {
       </div>
       ${TEST ? `<div class="danger">${ICON.shield}<span><b>Test network.</b> Send this only from a Shellnet <b>test</b> wallet. From a real wallet, real coins would go to an address that doesn't exist on mainnet.</span></div>` : ""}
       <ol class="steps">
-        <li><span>From a ${TEST ? "Shellnet test wallet" : "wallet"} that can attach a message, send <b>${TEST ? `${fmt(q.giveAmount, dec(q.giveId))} test ${sym(q.giveId)}` : amt(q.giveAmount, q.giveId)}</b> to the NACKL-Swap factory, bounce on:</span></li>
+        <li><span>From a ${TEST ? "Shellnet test wallet" : "wallet"} that can attach a message, send <b>${TEST ? `${fmt(q.giveAmount, dec(q.giveId))} test ${sym(q.giveId)}` : amt(q.giveAmount, q.giveId)}</b> to the TalonHive Swap factory, bounce on:</span></li>
       </ol>
       <div class="codebox">${tapCode(`0:${F}`, 12, 8)}<button class="btn ghost" data-copy="0:${F}">Copy</button></div>
       <ol class="steps" start="2" style="counter-reset:s 1">
@@ -528,7 +528,7 @@ function viewListResult(q) {
       ${TEST && q.giveAmount % 10n ** BigInt(dec(q.giveId)) === 0n ? `<details class="more"><summary>Shellnet test helper (repo script)</summary>
         <p style="margin:0 0 6px">Sends this exact offer from the repo's test seller wallet:</p>
         <div class="codebox"><code class="cmd">bash tests/demo_lots.sh send ${q.giveId} ${q.giveAmount / 10n ** BigInt(dec(q.giveId))} ${payload}</code><button class="btn ghost" data-copy="bash tests/demo_lots.sh send ${q.giveId} ${q.giveAmount / 10n ** BigInt(dec(q.giveId))} ${payload}">Copy</button></div></details>` : ""}
-      <div class="safe">${ICON.shield}<span>NACKL-Swap never asks for your keys or seed phrase. Anyone who does is trying to steal from you.</span></div>`,
+      <div class="safe">${ICON.shield}<span>TalonHive never asks for your keys or seed phrase. Anyone who does is trying to steal from you.</span></div>`,
     bind: (r) => { bindCopy(r); },
     // Called on every refresh: flips to "live" as soon as an offer with exactly these terms is on chain.
     live: (r) => {

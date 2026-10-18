@@ -1,6 +1,6 @@
 # Security policy
 
-NACKL-Swap holds user funds in smart contracts, so security reports are the most valuable contribution you can make.
+TalonHive Swap holds user funds in smart contracts, so security reports are the most valuable contribution you can make.
 
 ## Status
 

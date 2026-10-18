@@ -1,5 +1,5 @@
 name: pages
-# Publishes web/ to GitHub Pages: https://nackl-swap.github.io/nackl-swap/
+# Publishes web/ to GitHub Pages: https://talonhive.github.io/talonhive/
 on:
   push:
     branches: [main]

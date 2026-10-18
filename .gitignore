@@ -33,3 +33,4 @@ desktop.ini
 *.swp
 node_modules/
 docs/MESSAGES_*.md
+!brand/out/

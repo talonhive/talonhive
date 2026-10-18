@@ -3,25 +3,25 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0a1224">
+<meta name="theme-color" content="#000000">
 <!-- Browsers may load code only from this site and the QR library, and may talk only to the Shellnet API. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src https://shellnet.ackinacki.org; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="./favicon.svg">
-<title>NACKL-Swap</title>
-<meta name="description" content="Swap NACKL and SHELL with other people directly. Every lot is its own smart contract: pay it and it pays you back in the same transaction.">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<title>TalonHive Swap</title>
+<meta name="description" content="TalonHive Swap: swap NACKL and SHELL with other people directly. Every lot is its own smart contract: pay it and it pays you back in the same transaction.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
     color-scheme: dark;
-    --bg-0: #070d1c; --bg-1: #0b1630; --glow-1: #1f4fbf; --glow-2: #5b3bd6;
+    --bg-0: #000000; --bg-1: #0d0d0d; --glow-1: #3a3a3a; --glow-2: #242424;
     --glass: rgba(255,255,255,.055); --glass-2: rgba(255,255,255,.09); --glass-line: rgba(255,255,255,.10);
-    --ink: #f3f6fc; --ink-2: #b7c0d4; --ink-3: #7f8aa3;
-    --paper: #f7f9fd; --paper-ink: #0b1224;
-    --up: #4ade80; --down: #fb7185; --warn: #fbbf24; --accent: #7aa2ff;
+    --ink: #f5f5f5; --ink-2: #bdbdbd; --ink-3: #8a8a8a;
+    --paper: #ffffff; --paper-ink: #0a0a0a;
+    --up: #4ade80; --down: #fb7185; --warn: #fbbf24; --accent: #f2f2f2;
     --r-xl: 28px; --r-lg: 20px; --r-md: 14px; --r-sm: 10px;
     --num: "Manrope", system-ui, sans-serif;
   }
@@ -52,8 +52,8 @@
   .top { max-width: 1120px; margin: 0 auto; padding: max(18px, env(safe-area-inset-top)) 16px 8px;
     display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 19px; letter-spacing: -.02em; }
-  .mark { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; font-weight: 800; font-size: 15px;
-    background: linear-gradient(135deg, #8fb0ff, #6f5cff); color: #0a1020; box-shadow: 0 6px 20px rgba(111,92,255,.35); }
+  .mark { width: 34px; height: 34px; display: block; flex: none; }
+  .brand small { font-weight: 500; color: var(--ink-3); margin-left: -4px; }
   .top-right { display: flex; align-items: center; gap: 8px; }
   .net { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-2); padding: 7px 12px; border-radius: 99px; }
   .net i { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); }
@@ -88,7 +88,7 @@
     border: 1px solid var(--glass-line); background: rgba(255,255,255,.07); font-weight: 600; font-size: 14px; }
   .chip svg { width: 14px; height: 14px; opacity: .7; }
   .chip-coins { display: inline-flex; }
-  .chip-coins .coin { width: 24px; height: 24px; font-size: 10px; border: 2px solid #16213d; }
+  .chip-coins .coin { width: 24px; height: 24px; font-size: 10px; border: 2px solid #1a1a1a; }
   .chip-coins .coin + .coin { margin-left: -8px; }
   .hero .label { color: var(--ink-2); font-size: 13.5px; }
   .price { font-family: var(--num); font-weight: 800; font-size: clamp(44px, 12vw, 58px); letter-spacing: -.035em; line-height: 1.05; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
@@ -106,7 +106,7 @@
   .act-wrap { position: relative; display: grid; }
   .act-ico { position: absolute; top: -13px; left: 50%; transform: translateX(-50%); width: 26px; height: 26px; display: grid; place-items: center; color: var(--ink); pointer-events: none; }
   .act-ico svg { width: 20px; height: 20px; }
-  .act small { display: block; font-weight: 500; font-size: 11.5px; color: #5b6477; margin-top: 1px; }
+  .act small { display: block; font-weight: 500; font-size: 11.5px; color: #5c5c5c; margin-top: 1px; }
 
   /* ---------- trust strip ---------- */
   .trust { margin-top: 16px; border-radius: var(--r-lg); padding: 14px 16px; display: grid; gap: 10px; }
@@ -126,12 +126,12 @@
   .row:hover { background: rgba(255,255,255,.04); }
   .row + .row { border-top: 1px solid rgba(255,255,255,.05); }
   .coins { position: relative; width: 46px; height: 46px; }
-  .coin { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 13px; color: #0b1224; border: 2px solid var(--bg-1); }
+  .coin { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 13px; color: #0a0a0a; border: 2px solid var(--bg-1); }
   .coins .coin:first-child { position: absolute; left: 0; top: 0; }
   .coins .coin:last-child { position: absolute; right: 0; bottom: 0; width: 26px; height: 26px; font-size: 10px; }
-  .c1 { background: linear-gradient(135deg, #9db8ff, #6f5cff); }
-  .c2 { background: linear-gradient(135deg, #7ee8c3, #22b8a0); }
-  .c3 { background: linear-gradient(135deg, #9cc9ff, #3b82f6); }
+  .c1 { background: linear-gradient(135deg, #ffffff, #cfcfcf); }
+  .c2 { background: linear-gradient(135deg, #a3a3a3, #6b6b6b); }
+  .c3 { background: linear-gradient(135deg, #4a4a4a, #2a2a2a); color: #fff; }
   .row-main b { display: block; font-weight: 700; font-size: 15.5px; }
   .row-main span { color: var(--ink-3); font-size: 13px; }
   .row-end { text-align: right; }
@@ -140,7 +140,7 @@
   .tag { display: inline-block; font-size: 11.5px; font-weight: 700; padding: 3px 9px; border-radius: 99px; margin-top: 4px; }
   .tag.buy { background: rgba(74,222,128,.14); color: var(--up); }
   .tag.sell { background: rgba(251,113,133,.14); color: var(--down); }
-  .tag.open { background: rgba(122,162,255,.16); color: var(--accent); }
+  .tag.open { background: rgba(255,255,255,.16); color: var(--accent); }
   .tag.done { background: rgba(255,255,255,.08); color: var(--ink-2); }
   .tag.exp { background: rgba(251,191,36,.14); color: var(--warn); }
   .best { font-size: 10.5px; font-weight: 800; letter-spacing: .04em; color: var(--up); text-transform: uppercase; margin-left: 6px; }
@@ -152,8 +152,8 @@
 
   /* ---------- sheet (bottom sheet on phones, modal on desktop) ---------- */
   dialog.sheet { border: 0; padding: 0; margin: 0; max-width: none; max-height: none; width: 100%; background: transparent; color: var(--ink); }
-  dialog.sheet::backdrop { background: rgba(3,6,14,.62); backdrop-filter: blur(4px); }
-  .sheet-card { position: fixed; left: 0; right: 0; bottom: 0; max-height: 92vh; overflow: auto; background: #0e172e; border: 1px solid var(--glass-line); border-bottom: 0;
+  dialog.sheet::backdrop { background: rgba(0,0,0,.7); backdrop-filter: blur(4px); }
+  .sheet-card { position: fixed; left: 0; right: 0; bottom: 0; max-height: 92vh; overflow: auto; background: #111111; border: 1px solid var(--glass-line); border-bottom: 0;
     border-radius: 26px 26px 0 0; padding: 10px 18px max(22px, env(safe-area-inset-bottom)); animation: up .25s cubic-bezier(.2,.8,.2,1); }
   @keyframes up { from { transform: translateY(24px); opacity: 0; } }
   .grab { width: 40px; height: 4px; border-radius: 4px; background: rgba(255,255,255,.18); margin: 0 auto 10px; }
@@ -171,11 +171,11 @@
   .sum-row .coin { width: 26px; height: 26px; font-size: 10px; border: 0; }
   .sum-row b { font-family: var(--num); font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .pay { margin-top: 14px; border-radius: var(--r-lg); padding: 18px 16px; text-align: center; background: var(--paper); color: var(--paper-ink); }
-  .pay .k { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #5b6477; }
+  .pay .k { font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #5c5c5c; }
   .pay .amount { font-family: var(--num); font-size: 38px; font-weight: 800; letter-spacing: -.03em; margin: 2px 0 12px; font-variant-numeric: tabular-nums; }
-  .pay .amount small { font-size: 16px; color: #5b6477; font-weight: 700; }
-  .addr { display: flex; align-items: center; gap: 8px; background: #edf1f8; border-radius: 12px; padding: 8px 8px 8px 12px; text-align: left; }
-  .addr code { flex: 1; font: 12px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; word-break: break-all; color: #1d2740; }
+  .pay .amount small { font-size: 16px; color: #5c5c5c; font-weight: 700; }
+  .addr { display: flex; align-items: center; gap: 8px; background: #efefef; border-radius: 12px; padding: 8px 8px 8px 12px; text-align: left; }
+  .addr code { flex: 1; font: 12px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; word-break: break-all; color: #1f1f1f; }
   .btn { border: 0; cursor: pointer; border-radius: 12px; padding: 10px 14px; font-weight: 700; font-size: 14px; white-space: nowrap; }
   .btn.dark { background: var(--paper-ink); color: #fff; }
   .btn.light { background: var(--paper); color: var(--paper-ink); }
@@ -190,9 +190,9 @@
   .steps li { counter-increment: s; display: grid; grid-template-columns: 26px 1fr; gap: 10px; font-size: 14px; color: var(--ink-2); }
   .steps li::before { content: counter(s); width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 12.5px; background: rgba(255,255,255,.08); color: var(--ink); }
   .steps b { color: var(--ink); }
-  .live { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 12px 14px; border-radius: 14px; font-size: 14px; background: rgba(122,162,255,.12); color: #cfdcff; }
+  .live { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 12px 14px; border-radius: 14px; font-size: 14px; background: rgba(255,255,255,.12); color: #e5e5e5; }
   .live i { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); flex: none; animation: pulse 1.6s infinite; }
-  @keyframes pulse { 50% { box-shadow: 0 0 0 6px rgba(122,162,255,.18); } }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 6px rgba(255,255,255,.18); } }
   .live.warn { background: rgba(251,191,36,.12); color: #fde68a; } .live.warn i { background: var(--warn); animation: none; }
   .done-card { text-align: center; padding: 18px 8px 6px; }
   .check { width: 68px; height: 68px; border-radius: 50%; margin: 0 auto 12px; display: grid; place-items: center; background: rgba(74,222,128,.14); color: var(--up); }
@@ -211,11 +211,11 @@
   /* Long ids and payloads must never widen the page: wrap anywhere, shorten by default (code.tap). */
   .codebox, .addr { min-width: 0; }
   .codebox code, .addr code, code.tap { min-width: 0; word-break: break-all; overflow-wrap: anywhere; }
-  code.tap { cursor: pointer; text-decoration: underline dotted rgba(127,138,163,.6); text-underline-offset: 3px; }
+  code.tap { cursor: pointer; text-decoration: underline dotted rgba(138,138,138,.6); text-underline-offset: 3px; }
   code.cmd { max-height: 150px; overflow-y: auto; display: block; }
   .sheet-card { overflow-x: hidden; }
   .person { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; }
-  .avatar { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 800; color: #0b1224; }
+  .avatar { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 800; color: #0a0a0a; }
 
   /* ---------- forms ---------- */
   .field { display: grid; gap: 6px; margin-bottom: 14px; }
@@ -231,7 +231,7 @@
   .toggle button[aria-pressed="true"] { background: var(--paper); color: var(--paper-ink); }
   .chips { display: flex; gap: 8px; flex-wrap: wrap; }
   .chips button { border: 1px solid var(--glass-line); background: rgba(255,255,255,.05); color: var(--ink-2); border-radius: 99px; padding: 8px 14px; cursor: pointer; font-weight: 600; font-size: 13.5px; }
-  .chips button[aria-pressed="true"] { border-color: var(--accent); color: var(--ink); background: rgba(122,162,255,.14); }
+  .chips button[aria-pressed="true"] { border-color: var(--accent); color: var(--ink); background: rgba(255,255,255,.14); }
   .quote { border-radius: 16px; padding: 4px 14px; background: rgba(255,255,255,.04); border: 1px solid var(--glass-line); margin: 4px 0 16px; }
   .note { font-size: 13px; color: var(--ink-3); margin: 10px 0 0; }
   .err { color: var(--down); font-size: 13.5px; margin: 0 0 12px; min-height: 1em; }
@@ -256,7 +256,7 @@
 </div>
 
 <header class="top">
-  <div class="brand"><span class="mark">N</span>NACKL-Swap</div>
+  <div class="brand"><svg class="mark" viewBox="63.3 277.2 641.1 641.1" aria-hidden="true"><path fill="#fff" fill-rule="evenodd" d="M186.4,850.8 L186.0,849.6 L187.0,845.1 L201.7,793.3 L202.4,789.2 L193.2,783.1 L132.7,747.6 L131.0,746.3 L130.4,745.0 L130.4,452.2 L131.1,448.7 L136.3,445.2 L383.6,301.0 L386.6,302.0 L552.1,398.5 L553.7,398.4 L603.3,377.2 L606.7,376.3 L606.7,376.8 L605.8,377.6 L594.1,385.0 L566.0,404.3 L533.7,427.8 L504.1,451.0 L474.2,475.8 L438.8,507.4 L409.7,535.3 L375.6,570.5 L359.9,588.0 L331.9,621.0 L305.2,654.8 L281.9,686.5 L262.1,715.4 L235.4,757.7 L220.1,784.4 L202.0,818.9 L186.5,850.7 Z M384.6,894.6 L382.8,894.3 L366.0,884.6 L242.1,811.8 L240.8,812.1 L190.3,851.9 L188.7,853.0 L188.5,852.6 L248.7,783.0 L607.2,378.3 L608.3,376.2 L609.6,375.8 L609.4,377.3 L586.7,418.2 L588.3,419.8 L635.0,447.1 L636.8,448.6 L637.4,450.2 L637.2,745.9 L635.7,747.3 L628.5,751.6 L384.8,894.5 Z M189.7,700.5 L213.2,670.3 L232.5,647.4 L254.4,623.0 L309.8,563.9 L356.7,509.0 L375.1,488.3 L390.9,471.5 L411.2,451.3 L441.1,423.5 L464.0,403.6 L464.7,402.2 L459.4,404.0 L444.0,411.1 L414.3,427.1 L388.6,443.2 L367.7,457.8 L345.1,475.0 L326.0,491.1 L304.6,511.2 L287.1,529.5 L270.4,549.0 L252.2,573.0 L236.1,597.0 L224.1,617.4 L214.1,636.2 L201.3,664.4 L191.1,692.2 L189.0,699.6 L189.0,700.4 L189.6,700.5 Z M346.9,812.2 L366.8,787.9 L390.9,760.8 L443.7,706.3 L474.8,672.7 L497.2,646.3 L513.9,625.0 L536.6,592.8 L547.1,576.3 L555.6,561.5 L564.6,544.7 L572.6,528.4 L579.6,512.4 L582.9,503.1 L583.1,501.2 L581.6,502.4 L563.7,525.0 L544.6,547.5 L514.3,579.5 L471.9,621.0 L454.0,639.6 L431.3,665.0 L414.2,686.5 L393.6,715.9 L382.1,734.3 L374.1,748.4 L362.0,772.1 L356.1,785.5 L347.2,808.8 L346.4,811.5 L346.8,812.2 Z"/></svg>TalonHive <small>Swap</small></div>
   <div class="top-right">
     <span id="net" class="net glass"><i></i><span>Connecting…</span></span>
     <button class="icon-btn" id="btn-mine" aria-label="My lots" title="My lots">
