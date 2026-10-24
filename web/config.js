@@ -50,4 +50,23 @@ export const ABI = {
     outputs: [],
   },
   reclaim: { name: "reclaim", inputs: [], outputs: [] },
+  // Listing by transfer (docs/LISTING_BY_TRANSFER.md): sent by the page as an unsigned external message.
+  openListing: {
+    name: "openListing",
+    inputs: [
+      { name: "key", type: "uint64" }, { name: "giveId", type: "uint32" },
+      { name: "giveAmount", type: "uint128" }, { name: "wantId", type: "uint32" },
+      { name: "wantAmount", type: "uint128" }, { name: "deadline", type: "uint64" },
+    ],
+    outputs: [],
+  },
+  ListingOpened: {
+    name: "ListingOpened",
+    inputs: [
+      { name: "key", type: "uint64" }, { name: "nonce", type: "uint64" }, { name: "lot", type: "address" },
+      { name: "giveId", type: "uint32" }, { name: "giveAmount", type: "uint128" },
+      { name: "wantId", type: "uint32" }, { name: "wantAmount", type: "uint128" },
+      { name: "deadline", type: "uint64" }, { name: "fundBy", type: "uint64" },
+    ],
+  },
 };

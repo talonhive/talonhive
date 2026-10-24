@@ -141,6 +141,69 @@ export function encodeCallBody(funcId, params, values) {
   return serializeSingleCell(concatBits(chunks));
 }
 
+// ---- external messages (unsigned calls sent by the page itself, no wallet) ----
+
+/** Serialize cells as a base64 BOC (root = cells[0]; cell.refs are indexes; same layout tvm-cli writes). */
+export function serializeCells(cells) {
+  const enc = cells.map(({ bytes, bits, refs = [] }) => {
+    const data = Uint8Array.from(bytes);
+    if (bits % 8 !== 0) data[data.length - 1] |= 0x80 >> (bits % 8);   // completion tag
+    return [refs.length, Math.floor(bits / 8) + Math.ceil(bits / 8), ...data, ...refs];
+  });
+  const total = enc.reduce((a, c) => a + c.length, 0);
+  const offBytes = total < 256 ? 1 : 2;
+  const tot = offBytes === 1 ? [total] : [total >> 8, total & 255];
+  const out = Uint8Array.from([0xb5, 0xee, 0x9c, 0x72, 0x01, offBytes, cells.length, 1, 0, ...tot, 0, ...enc.flat()]);
+  let s = ""; for (const b of out) s += String.fromCharCode(b);
+  return typeof btoa === "function" ? btoa(s) : Buffer.from(out).toString("base64");
+}
+
+/** Representation hash of cells[0] (hex): sha256(d1 d2 data, ref depths, ref hashes), children first. */
+export async function cellHash(cells) {
+  const memo = new Map();
+  const visit = async (i) => {
+    if (memo.has(i)) return memo.get(i);
+    const { bytes, bits, refs = [] } = cells[i];
+    const data = Uint8Array.from(bytes);
+    if (bits % 8 !== 0) data[data.length - 1] |= 0x80 >> (bits % 8);
+    const kids = [];
+    for (const r of refs) kids.push(await visit(r));
+    const parts = [refs.length, Math.floor(bits / 8) + Math.ceil(bits / 8), ...data];
+    for (const k of kids) parts.push(k.depth >> 8, k.depth & 255);
+    for (const k of kids) parts.push(...k.hash);
+    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", Uint8Array.from(parts)));
+    const r = { hash, depth: kids.length ? Math.max(...kids.map((k) => k.depth)) + 1 : 0 };
+    memo.set(i, r);
+    return r;
+  };
+  return [...(await visit(0)).hash].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Unsigned ABI 2.4 external call (headers pubkey, time, expire) to account `destHex` in workchain 0.
+ * Layout as tvm-cli writes it: the root holds the message header, the call headers and the function id;
+ * the arguments go in one referenced cell. Returns { boc, id } (id = message hash, hex).
+ */
+export async function encodeExternalCall(destHex, funcId, params, values, timeMs, expire) {
+  const args = [];
+  for (const { name, type } of params) {
+    const n = BITS[type];
+    if (n === undefined || type === "address") throw new Error("unsupported type " + type);
+    const v = BigInt(values[name]);
+    if (v < 0n || v >= 1n << BigInt(n)) throw new Error(`${name} out of range for ${type}`);
+    args.push([v, n]);
+  }
+  const root = concatBits([
+    [0b10n, 2], [0b00n, 2],                        // ext_in_msg_info, src addr_none
+    [0b100n, 3], [0n, 8], [BigInt("0x" + destHex), 256],  // dest addr_std (no anycast, workchain 0)
+    [0n, 4], [0n, 1], [0n, 1],                     // import_fee 0, no init, body inline
+    [0n, 1], [0n, 1],                              // no signature, no pubkey
+    [BigInt(timeMs), 64], [BigInt(expire), 32], [BigInt(funcId), 32],
+  ]);
+  const cells = [{ ...root, refs: [1] }, { ...concatBits(args), refs: [] }];
+  return { boc: serializeCells(cells), id: await cellHash(cells) };
+}
+
 /** ABI 2.x function id: first 32 bits of sha256("name(inputs)(outputs)v2"), high bit cleared for calls. */
 export function functionSignature(fn) {
   return `${fn.name}(${fn.inputs.map((i) => i.type).join(",")})(${(fn.outputs || []).map((o) => o.type).join(",")})v2`;

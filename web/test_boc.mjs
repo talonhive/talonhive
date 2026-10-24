@@ -53,5 +53,16 @@ eq("createLot body #2 == tvm-cli",
     deadline: 1n, makerDapp: 1n }));
 eq("reclaim body == tvm-cli", "te6ccgEBAQEABgAACH8a7W8=", encodeCallBody(fid(ABI.reclaim), [], {}));
 
+// Unsigned external openListing vs `tvm-cli message --raw` (tvm-cli 3.0.6, 2026-10-24, offline: nothing sent).
+import { encodeExternalCall } from "./boc.js";
+const ext = await encodeExternalCall("ae5ef6cba9a1ae056412b5fe78f2993a8023224c64f5cfc9f52efb13e1f1f77c",
+  fid(ABI.openListing), ABI.openListing.inputs,
+  { key: 123456789n, giveId: 1, giveAmount: 1000000000000n, wantId: 2, wantAmount: 50000000000n, deadline: 1793000000n },
+  1792800000000n, 1792800120);
+eq("openListing message == tvm-cli",
+  "te6ccgEBAgEAcAABZYgBXL3tl1NDXArIJWv88eUydQBGRJjJ65+T6l32J8Pj7vgAAAADQtZqEADVt+rwrfEOzwEAcAAAAAAHW80VAAAAAQAAAAAAAAAAAAAA6NSlEAAAAAACAAAAAAAAAAAAAAALpDt0AAAAAABq3wJA",
+  ext.boc);
+eq("openListing message id == tvm-cli", "ef7dd05b9a477a622326baa3e3fe1cae37ec43fe69c5a9218716c37c5063ec6e", ext.id);
+
 console.log(fail ? `\n${fail} FAILED` : "\nall passed");
 process.exit(fail ? 1 : 0);
