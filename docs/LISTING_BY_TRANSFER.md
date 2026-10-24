@@ -51,4 +51,6 @@ at most 15 minutes. I2–I6 are unchanged.
 `tests/run_listing.sh` (Shellnet, unattended): L1 open by external message, L2 refused terms, L3 wrong
 deposits refunded (bounceable and not), L4 exact deposit opens with the sender as maker, L5 a second deposit
 refunded, L6 pay-to-take on a funded listing, L7–L8 cancel by transfer (NACKL and SHELL signal), L9 cancel
-on a `createLot` lot, L10 rate limit, L11 expiry and close.
+on a `createLot` lot, L10 rate limit, L11 expiry and close. USDC on both sides (`bash run_listing.sh usdc` runs
+only these): U1–U3 sell NACKL for USDC (underpay refused, fill, 1% fee in USDC), U4–U5 buy NACKL with USDC (wrong
+deposit refunded, fill, 1% fee in NACKL), U6 cancel a USDC offer, U7 USDC via `createLot` and the 1 USDC minimum.
