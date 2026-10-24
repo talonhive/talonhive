@@ -1,7 +1,7 @@
-﻿# TalonHive Swap â€” Project Brief
+# TalonHive Swap — Project Brief
 
-> Brand: **TalonHive** (ecosystem) Â· **TalonHive Swap** (this app, formerly NACKL-Swap) Â· **TalonHive Mine** (Bee Engine mining, planned).
-> Repo: github.com/talonhive/talonhive Â· Site: https://talonhive.github.io/talonhive/ Â· Mark: `brand/` (black & white).
+> Brand: **TalonHive** (ecosystem) · **TalonHive Swap** (this app, formerly NACKL-Swap) · **TalonHive Mine** (Bee Engine mining, planned).
+> Repo: github.com/talonhive/talonhive · Site: https://talonhive.github.io/talonhive/ · Mark: `brand/` (black & white).
 
 > Read this first in any new session. It is the single source of truth for what we are
 > building, why, what is decided, and what is next.
@@ -9,7 +9,7 @@
 ## What
 
 A non-custodial, peer-to-peer swap for Acki Nacki native currencies, starting with
-**NACKL â†” SHELL** (and NACKL â†” USDC if SHELL turns out to convert on arrival).
+**NACKL ↔ SHELL** (and NACKL ↔ USDC if SHELL turns out to convert on arrival).
 
 ## Why
 
@@ -36,32 +36,32 @@ A non-custodial, peer-to-peer swap for Acki Nacki native currencies, starting wi
 | Order book | Read from chain: factory `LotCreated` events + lot balances via public GraphQL (no backend, no DB) | Shellnet GraphQL allows browser CORS; nothing to host or trust (Phase 2b) |
 | Wallet flow | Takers: plain transfer to the lot (pay-to-take). Makers: `createLot` payload from any wallet that can attach coins + payload | The AN Wallet cannot call contracts (bee SDK = connect only; `docs/WALLET_INTEGRATION.md`) |
 | Upgradeability | None on `AtomicSwap`; version via new factory | Trust comes from immutability |
-| First pairs | NACKLâ†”SHELL, NACKLâ†”USDC | SHELLâ†”USDC is pointless (protocol fixed 100:1 via `accumulator`) |
+| First pairs | NACKL↔SHELL, NACKL↔USDC | SHELL↔USDC is pointless (protocol fixed 100:1 via `accumulator`) |
 | Network for dev | Shellnet first, mainnet later with caps | Contract bugs are permanent |
 
 ## Current phase
 
-**Phase 0: spikes on Shellnet.** Spikes 1â€“4 CLOSED. Every design assumption verified on Shellnet. Spike 5 (checkSign) deferred to Phase 3.
-**Phase 1 COMPLETE â€” `AtomicSwap` FIXED mode verified on Shellnet: 34/34, nothing lost or stranded.**
-**Phase 1b: hardening from self-review** (`docs/SECURITY_REVIEW.md`, F1â€“F4): `close()` returns lot gas,
+**Phase 0: spikes on Shellnet.** Spikes 1–4 CLOSED. Every design assumption verified on Shellnet. Spike 5 (checkSign) deferred to Phase 3.
+**Phase 1 COMPLETE — `AtomicSwap` FIXED mode verified on Shellnet: 34/34, nothing lost or stranded.**
+**Phase 1b: hardening from self-review** (`docs/SECURITY_REVIEW.md`, F1–F4): `close()` returns lot gas,
 factory gas pre-check, exact-currency checks, permissionless reclaim after deadline. **46/46 on Shellnet (run 5).**
-**Phase 2 â€” web app. Finding: the AN Wallet cannot call contracts (bee SDK = connect/identity only), only plain transfers.**
+**Phase 2 — web app. Finding: the AN Wallet cannot call contracts (bee SDK = connect/identity only), only plain transfers.**
 Decision: "pay-to-take" lots + keeper functions by external message (`docs/WALLET_INTEGRATION.md`).
 Spike 6 CLOSED (bounce bit readable; refused non-bounceable strands coins; flag-16 SHELL converts unless bounced).
-**Phase 2a COMPLETE â€” 81/81 on Shellnet (run 7)**: pay-to-take `receive()`, `_refused()` refunds, `release()`,
-external keepers (review F8â€“F12). Suite `tests/run_phase2a.sh`; `tests/recover_lots.sh`. Phase 1b sources in `archive/`.
-**Phase 2b â€” web app `web/` (working locally):** live order book from chain, pay-to-take dialog (exact amount, address, QR,
+**Phase 2a COMPLETE — 81/81 on Shellnet (run 7)**: pay-to-take `receive()`, `_refused()` refunds, `release()`,
+external keepers (review F8–F12). Suite `tests/run_phase2a.sh`; `tests/recover_lots.sh`. Phase 1b sources in `archive/`.
+**Phase 2b — web app `web/` (working locally):** live order book from chain, pay-to-take dialog (exact amount, address, QR,
 hides payment details unless the lot is open), maker payload builder (byte-identical to `tvm-cli body`, `web/test_boc.mjs`),
 my lots + cancel payload. Demo data: `tests/demo_lots.sh`. Keeper clean-up by script (`tests/recover_lots.sh`); in-browser
 external messages deferred (needs Acki Nacki's message-submission format).
 **Found by the demo: F13** (factory ledger inflated by flag-16 SHELL blocked SHELL-giving lots). Fixed + P13 added.
-**Run 8:** F13 fix verified (P13 all pass; 89/89 with the corrected NACKL-conservation check). Web app now on factory `4b836d38â€¦`.
-UI redesigned for everyday users (Buy Â· Sell Â· List, bottom sheets). Outreach drafts: `docs/MESSAGES_2026-09-30.md`. Renamed to TalonHive Swap (2026-10-18); monochrome brand, traced mark in `brand/`.
-**Phase 2c â€” listing by transfer (Shellnet run 9: 33/33):** sell from the Acki Nacki Wallet app.
+**Run 8:** F13 fix verified (P13 all pass; 89/89 with the corrected NACKL-conservation check). Web app now on factory `4b836d38…`.
+UI redesigned for everyday users (Buy · Sell · List, bottom sheets). Outreach drafts: `docs/MESSAGES_2026-09-30.md`. Renamed to TalonHive Swap (2026-10-18); monochrome brand, traced mark in `brand/`.
+**Phase 2c — listing by transfer (Shellnet run 9: 33/33):** sell from the Acki Nacki Wallet app.
 The page opens a listing by external message, the maker funds it with a plain transfer, and cancels with another
 (`docs/LISTING_BY_TRANSFER.md`, suite `tests/run_listing.sh`). Open: browser format for external messages.
 Mainnet still requires an independent audit. `contracts/AtomicSwap.sol` + `contracts/SwapFactory.sol`
-compile (sold 0.81, `--tvm-version gosh`). Test suite: `tests/run_phase1.sh` (46 on-chain checks). Results: `tests/RESULTS.md` (runs 1â€“5).
+compile (sold 0.81, `--tvm-version gosh`). Test suite: `tests/run_phase1.sh` (46 on-chain checks). Results: `tests/RESULTS.md` (runs 1–5).
 See `spikes/README.md` and `spikes/RESULTS.md`.
 
 Toolchain: working (WSL Ubuntu, sold 0.81.0, tvm-cli 3.0.6, Shellnet). See `tools/SETUP.md`.
@@ -76,10 +76,10 @@ Toolchain: working (WSL Ubuntu, sold 0.81.0, tvm-cli 3.0.6, Shellnet). See `tool
 - Handlers: `receive() external {}` and `onBounce(TvmSlice body) external {}`.
 - Time: `block.timestamp`. Hashing: `tvm.hash(abi.encode(...))`.
 - **Verified (spike 3):** `gosh.mintshellq(x)` is a no-op until our DApp has a DappConfig. The DApp
-  root creates it by sending DappRoot (`0000â€¦::9999â€¦`) `deployNewConfigCustom` with â‰¥ 100 SHELL, all
+  root creates it by sending DappRoot (`0000…::9999…`) `deployNewConfigCustom` with ≥ 100 SHELL, all
   of which becomes credit; anyone can top it up. Then `mintshellq(x)` credits x vmshell after the tx.
-  Note `0000â€¦::9999â€¦` is the DappRoot system contract, never a test address.
-- **Verified (spike 4):** ECC attached to `new Child{â€¦, currencies}` is present at construction (born
+  Note `0000…::9999…` is the DappRoot system contract, never a test address.
+- **Verified (spike 4):** ECC attached to `new Child{…, currencies}` is present at construction (born
   funded). Children join the factory's DApp (native value arrives intact). Children mint from the
   factory DApp's DappConfig in later calls after `tvm.accept()`, **never in the constructor**.
   Gas strategy: factory gives initial gas via `value`; lots top up with accept + mintshellq.
@@ -111,7 +111,7 @@ Toolchain: working (WSL Ubuntu, sold 0.81.0, tvm-cli 3.0.6, Shellnet). See `tool
 - Measured: deploy of a small contract 0.0136 vmshell; handling an incoming transfer 0.001 vmshell.
 - **Verified (spike 2):** a bounced message returns its ECC in full, from a reverting contract and
   from a non-existent account. Only delivery to a wrong-but-existing address loses funds silently,
-  so payouts go only to contract-recorded addresses. Send+bounce round trip â‰ˆ 0.0067 vmshell.
+  so payouts go only to contract-recorded addresses. Send+bounce round trip ≈ 0.0067 vmshell.
 - Compile with `sold --tvm-version gosh` (enables `gosh.*` instructions such as `mintshellq`).
 - tvm-cli 3.0.6: always `genaddr --save` (ABI 2.4); `account/run/call` need `<dapp>::<account>`;
   on `DUPLICATE_MESSAGE`, retry with `--retries 1` and verify on chain.
