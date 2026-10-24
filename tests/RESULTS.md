@@ -194,3 +194,19 @@ New factory `4b836d38…` (fixed `receive()`, `getHeld()`).
   the treasury. Verified on chain: factory holds 250 NACKL and `getHeld().nackl` = 250. Start 96,016 NACKL = end
   95,766 (maker+taker+lots) + 250 (factory). Check corrected to include the factory; a NACKL ledger == balance check added.
   On this run's data all 89 checks pass.
+
+## Run 9 — listing by transfer, `run_listing.sh` (2026-10-24, 10:17–10:36 UTC): 33 passed, 0 failed
+
+New factory (lot code with AWAITING listings and cancel by transfer; `docs/LISTING_BY_TRANSFER.md`).
+- **Open with no wallet:** an unsigned external `openListing` deployed an AWAITING lot holding nothing, with a
+  deposit deadline (L1). Below-minimum and too-short-deadline listings created nothing (L2).
+- **Fund with a plain transfer:** 999 NACKL (bounceable) and 1001 NACKL (non-bounceable) came back, listing still
+  AWAITING (L3); exactly 1000 NACKL opened it with the depositor as maker (L4). A second depositor's 1000 NACKL
+  was refunded (L5). Pay-to-take then filled it: maker +49.5 SHELL, taker +1000 NACKL (L6).
+- **Cancel with a plain transfer:** 1 NACKL (L7) or 1 SHELL non-bounceable (L8) from the maker returned the lot's
+  1000 NACKL plus the signal; the lot was left empty. On a `createLot` lot, the maker paying their own lot
+  cancelled it with no fee taken (L9).
+- **Rate limit:** 4 listings earlier in the window + 8 back to back, then the next one was refused (12 per 10 min) (L10).
+- **Expiry:** after the deposit deadline a 1000 NACKL deposit was refunded and the listing stayed AWAITING;
+  an unsigned external `close()` then deleted it and returned 0.57 vmshell to the factory (L11; includes the
+  gas the refund minted, which moves from the DApp credit to the factory rather than being lost).
