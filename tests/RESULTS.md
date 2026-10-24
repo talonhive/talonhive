@@ -223,3 +223,10 @@ Same factory as run 9 (its DappConfig reused). Test USDC minted by the Shellnet 
 - **Cancel:** 1 USDC (non-bounceable) from the creator returned the 5 USDC plus the 1 (U6).
 - **createLot with USDC:** born funded with 5 USDC, filled by a NACKL plain transfer (U7a); a 0.5 USDC listing
   (below the 1 USDC minimum) created nothing (U7b).
+
+### Website end to end (2026-10-24, 13:45–13:48 UTC): Sell screen → plain-transfer deposit → live
+
+On the deployed site (talonhive.github.io/talonhive): List 1000 NACKL at 0.05 SHELL → Open my offer. The page's
+unsigned external message opened listing #20 (`ListingOpened` 13:45:13, lot `93e79ff2…`), and the page showed
+"Send exactly 1,000 test NACKL". `demo_lots.sh fund` sent it from the test seller wallet as a plain transfer;
+the lot emitted `LotCreated` (13:47:55, maker = the test seller) and the page switched to "Your offer is live".
