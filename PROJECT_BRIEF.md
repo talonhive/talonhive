@@ -57,7 +57,7 @@ external messages deferred (needs Acki Nacki's message-submission format).
 **Found by the demo: F13** (factory ledger inflated by flag-16 SHELL blocked SHELL-giving lots). Fixed + P13 added.
 **Run 8:** F13 fix verified (P13 all pass; 89/89 with the corrected NACKL-conservation check). Web app now on factory `4b836d38…`.
 UI redesigned for everyday users (Buy · Sell · List, bottom sheets). Outreach drafts: `docs/MESSAGES_2026-09-30.md`. Renamed to TalonHive Swap (2026-10-18); monochrome brand, traced mark in `brand/`.
-**Phase 2c — listing by transfer (Shellnet run 9: 33/33):** sell from the Acki Nacki Wallet app.
+**Phase 2c — listing by transfer (Shellnet run 9: 33/33; run 10, USDC both sides: 25/25):** sell from the Acki Nacki Wallet app.
 The page opens a listing by external message, the maker funds it with a plain transfer, and cancels with another
 (`docs/LISTING_BY_TRANSFER.md`, suite `tests/run_listing.sh`). Open: browser format for external messages.
 Mainnet still requires an independent audit. `contracts/AtomicSwap.sol` + `contracts/SwapFactory.sol`

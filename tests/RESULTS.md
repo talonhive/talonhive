@@ -210,3 +210,16 @@ New factory (lot code with AWAITING listings and cancel by transfer; `docs/LISTI
 - **Expiry:** after the deposit deadline a 1000 NACKL deposit was refunded and the listing stayed AWAITING;
   an unsigned external `close()` then deleted it and returned 0.57 vmshell to the factory (L11; includes the
   gas the refund minted, which moves from the DApp credit to the factory rather than being lost).
+
+## Run 10 — USDC on both sides, `run_listing.sh usdc` (2026-10-24, 13:16–13:24 UTC): 25 passed, 0 failed
+
+Same factory as run 9 (its DappConfig reused). Test USDC minted by the Shellnet giver (GiverV3 `mintecc`).
+- **Sell NACKL for USDC:** listing 1000 NACKL for 5 USDC funded by plain transfer (U1); 4 USDC underpay bounced
+  back, lot still open (U2); 5 USDC filled it: seller +4.95 USDC, treasury +0.05 USDC, buyer +1000 NACKL,
+  no USDC left in the lot (U3).
+- **Buy NACKL with USDC:** 4.999999 USDC deposit (non-bounceable) refunded, listing still AWAITING; exactly 5 USDC
+  opened it with the depositor as creator (U4). A NACKL holder's 1000 NACKL filled it: creator +990 NACKL,
+  treasury +10 NACKL, NACKL holder +5 USDC, lot empty (U5).
+- **Cancel:** 1 USDC (non-bounceable) from the creator returned the 5 USDC plus the 1 (U6).
+- **createLot with USDC:** born funded with 5 USDC, filled by a NACKL plain transfer (U7a); a 0.5 USDC listing
+  (below the 1 USDC minimum) created nothing (U7b).
