@@ -3,7 +3,10 @@
 #   bash demo_lots.sh          create 3 asks (sell NACKL for SHELL) + 1 bid (buy NACKL with SHELL), 6-day expiry
 #   bash demo_lots.sh take     taker pays the cheapest open ask with a PLAIN transfer (pay-to-take)
 #   bash demo_lots.sh send GIVE_ID GIVE_UNITS PAYLOAD
-#                              test maker sends a createLot message prepared on the website (List flow, end to end)
+#                              test maker sends a createLot message prepared on the website (developer route)
+#   bash demo_lots.sh fund OFFER_ADDRESS CURRENCY_ID AMOUNT
+#                              test maker funds an offer opened on the website's Sell screen with a PLAIN
+#                              transfer, like the Acki Nacki Wallet app (paste the address and amount the page shows)
 # Run from WSL:  cd <repo>/tests && bash demo_lots.sh
 set -u
 cd "$(dirname "$0")"
@@ -15,7 +18,9 @@ WAL_ABI=TestWallet.abi.json
 GQL=https://shellnet.ackinacki.org/graphql
 EMPTY_CELL=te6ccgEBAQEAAgAAAA==
 N=1000000000
-SRC=out/phase2a.log
+# Addresses from the newest suite log (run_listing.sh deploys the factory the website uses).
+SRC=""; for f in out/listing.log out/listing-usdc.log out/phase2a.log; do [ -f "$f" ] && { SRC=$f; break; }; done
+[ -n "$SRC" ] || { echo "STOPPING: no suite log in tests/out; run run_listing.sh first"; exit 1; }
 
 die() { echo "STOPPING: $*"; exit 1; }
 hex_of() { grep -m1 "^$1 " "$SRC" | awk '{print $2}' | cut -d: -f1; }
@@ -43,6 +48,19 @@ if [ "${1:-}" = "send" ]; then
   UNIT=$N; [ "$2" = 3 ] && UNIT=1000000            # USDC has 6 decimals
   echo "test maker sends $3 of currency #$2 with the website's payload to the factory"
   send "$MKEYS" "$MHEX" "$FHEX" true "{\"$2\":\"$(( $3 * UNIT ))\"}" "$4"
+  echo "watch the website: it should switch to 'Your offer is live' within seconds"
+  exit 0
+fi
+
+if [ "${1:-}" = "fund" ]; then
+  ADDR=$(echo "${2:-}" | tr 'A-F' 'a-f'); ADDR=${ADDR#0:}
+  [[ "$ADDR" =~ ^[0-9a-f]{64}$ && "${3:-}" =~ ^[123]$ && "${4:-}" =~ ^[0-9][0-9,]*(\.[0-9]+)?$ ]] \
+    || die "usage: bash demo_lots.sh fund OFFER_ADDRESS CURRENCY_ID AMOUNT   (1=NACKL 2=SHELL 3=USDC; e.g. fund 0:ab12... 1 1000)"
+  DEC=9; [ "$3" = 3 ] && DEC=6                      # USDC has 6 decimals
+  NANO=$(python3 -c "from decimal import Decimal; import sys; v=Decimal(sys.argv[1].replace(',',''))*10**int(sys.argv[2]); print(int(v) if v==int(v) else 'x')" "$4" "$DEC")
+  [[ "$NANO" =~ ^[0-9]+$ ]] || die "too many decimals in $4"
+  echo "test maker sends $4 of currency #$3 to offer $ADDR (plain transfer, like the Acki Nacki Wallet app)"
+  send "$MKEYS" "$MHEX" "$ADDR" true "{\"$3\":\"$NANO\"}" "$EMPTY_CELL"
   echo "watch the website: it should switch to 'Your offer is live' within seconds"
   exit 0
 fi

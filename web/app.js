@@ -564,7 +564,10 @@ function viewOpenListing(q) {
             <li><span>Your offer goes live as soon as it arrives, with you as the seller.</span></li>
           </ol>
           ${q.giveId === 2 ? `<div class="safe">${ICON.shield}<span>Send SHELL <b>as SHELL</b>. Don't convert it to gas first: converted SHELL can't be refunded.</span></div>` : ""}
-          <div class="live"><i></i><span>Waiting for your ${sym(q.giveId)} · ${Math.max(0, Math.ceil((Number(listing.fundBy) - now) / 60))} min left</span></div>`;
+          <div class="live"><i></i><span>Waiting for your ${sym(q.giveId)} · ${Math.max(0, Math.ceil((Number(listing.fundBy) - now) / 60))} min left</span></div>
+          ${TEST ? `<details class="more"><summary>Shellnet test helper (repo script)</summary>
+            <p style="margin:0 0 6px">Funds this offer from the repo's test seller wallet with a plain transfer:</p>
+            <div class="codebox"><code class="cmd">bash tests/demo_lots.sh fund ${addr} ${q.giveId} ${amount.replace(/,/g, "")}</code><button class="btn ghost" data-copy="bash tests/demo_lots.sh fund ${addr} ${q.giveId} ${amount.replace(/,/g, "")}">Copy</button></div></details>` : ""}`;
         bindCopy(box);
         $("#qr-toggle", box)?.addEventListener("click", (e) => {
           const qr = $("#qr", box);
