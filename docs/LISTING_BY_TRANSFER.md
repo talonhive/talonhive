@@ -38,10 +38,10 @@ at most 15 minutes. I2–I6 are unchanged.
 
 ## Still open
 
-1. **Sending the external message from a browser.** tvm-cli sends unsigned external messages fine
-   (`tests/RESULTS.md`, keepers), but the browser endpoint and format are not documented (asked in the
-   outreach notes). Options: ask GOSH, or copy what the official SDK does. Until then the Shellnet demo can
-   open listings with tvm-cli.
+1. ~~Sending the external message from a browser.~~ **Solved (2026-10-24):** the page POSTs to
+   `<node>/v2/messages` in the tvm-sdk 3.x format (`web/send.js`; GraphQL has no mutations). The message is
+   byte-identical to `tvm-cli message --raw` (`web/test_boc.mjs`), and one sent from the page's code opened
+   listing #13 on the run-9 factory (`tests/send_listing.mjs`). The node allows CORS from the site.
 2. **What the wallet app's plain transfer looks like on mainnet** (bounce flag, destination DApp id). Pay-to-take
    already relies on this; the planned 1-NACKL mainnet probe answers it for both.
 3. **Independent audit** before mainnet, as for all contract changes.

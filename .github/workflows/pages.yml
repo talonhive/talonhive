@@ -31,8 +31,10 @@ jobs:
           V="${GITHUB_SHA::7}"
           sed -i "s#src=\"\./app\.js\"#src=\"./app.js?v=$V\"#" web/index.html
           sed -i "s#href=\"\./favicon\.svg\"#href=\"./favicon.svg?v=$V\"#; s#href=\"\./icons/apple-touch-icon\.png\"#href=\"./icons/apple-touch-icon.png?v=$V\"#; s#href=\"\./manifest\.webmanifest\"#href=\"./manifest.webmanifest?v=$V\"#" web/index.html
-          sed -i "s#from \"\./config\.js\"#from \"./config.js?v=$V\"#; s#from \"\./boc\.js\"#from \"./boc.js?v=$V\"#" web/app.js
+          sed -i "s#from \"\./config\.js\"#from \"./config.js?v=$V\"#; s#from \"\./boc\.js\"#from \"./boc.js?v=$V\"#; s#from \"\./send\.js\"#from \"./send.js?v=$V\"#" web/app.js
+          sed -i "s#from \"\./boc\.js\"#from \"./boc.js?v=$V\"#" web/send.js
           grep -q "app.js?v=$V" web/index.html && grep -q "config.js?v=$V" web/app.js && grep -q "boc.js?v=$V" web/app.js
+          grep -q "send.js?v=$V" web/app.js && grep -q "boc.js?v=$V" web/send.js
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

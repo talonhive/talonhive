@@ -4,6 +4,7 @@ import {
   NETWORKS, DEFAULT_NETWORK, CURRENCIES, PAIRS, FEE_BPS, MAX_TTL_SECONDS, EVENTS_TO_SCAN, POLL_MS, ABI,
 } from "./config.js";
 import { decodeEvent, encodeCallBody, functionSignature, eventSignature } from "./boc.js";
+import { openListing } from "./send.js";
 
 const net = NETWORKS[DEFAULT_NETWORK];
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -57,6 +58,18 @@ async function fetchLots() {
     });
   }
   return out;
+}
+/** The ListingOpened event with this key (the page chose it when sending openListing), or null. */
+async function findListing(key) {
+  const d = await gql(`{ blockchain { account(account_id:"${F}", dapp_id:"${F}") {
+    messages(msg_type:[ExtOut], last:50) { edges { node { body } } } } } }`);
+  for (const { node } of d?.blockchain?.account?.messages?.edges || []) {
+    if (!node.body) continue;
+    let e;
+    try { e = decodeEvent(node.body, ABI.ListingOpened, IDS.ListingOpened); } catch { continue; }
+    if (e && e.key === key) return { ...e, lot: e.lot.split(":")[1] };
+  }
+  return null;
 }
 async function fetchStatuses(list) {
   for (let i = 0; i < list.length; i += 40) {
@@ -425,7 +438,7 @@ function viewList(pre = {}) {
       <div class="quote" id="f-quote"></div>
       <p class="err" id="f-err"></p>
       <button class="btn light block" id="f-go">Continue</button>
-      <p class="note">You'll get a ready-made message to send from your wallet. Your coins go straight into the new offer's own contract, never to us.</p>`,
+      <p class="note">Next, this page opens your offer and shows where to send your coins, as a normal transfer from your wallet. They go straight into the offer's own contract, never to us.</p>`,
     bind: (r) => {
       const recalc = () => {
         s.amount = $("#f-amount", r).value; s.price = $("#f-price", r).value;
@@ -451,7 +464,7 @@ function viewList(pre = {}) {
       $("#f-go", r).addEventListener("click", () => {
         const q = computeOffer(s);
         if (!q.ok) { $("#f-err", r).textContent = q.error; return; }
-        push(viewListResult(q));
+        push(viewOpenListing(q));
       });
       recalc();
     },
@@ -473,6 +486,142 @@ function computeOffer(s) {
     if (!(s.hours >= 1 && s.hours * 3600 <= MAX_TTL_SECONDS)) throw new Error("Pick how long the offer stays open");
     return { ok: true, giveId, giveAmount, wantId, wantAmount, fee: (wantAmount * FEE_BPS) / 10000n, hours: s.hours };
   } catch (e) { return { ok: false, error: e.message }; }
+}
+
+// Listing by transfer (docs/LISTING_BY_TRANSFER.md): the page opens the offer itself (unsigned external message,
+// no wallet), then the seller funds it with a plain transfer, which is all the Acki Nacki Wallet app can send.
+const LISTING_TTL = 15 * 60;   // SwapFactory.LISTING_TTL: time to send the deposit
+function viewOpenListing(q) {
+  // The offer must outlive the 15-minute deposit window; keep the chosen window, minus a little slack.
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + q.hours * 3600 - 120);
+  const terms = termsKey(q.giveId, q.giveAmount, q.wantId, q.wantAmount, Number(deadline));
+  let phase = "ready";           // ready | sending | waiting (for ListingOpened) | fund | live | expired | failed
+  let listing = null, sentAt = 0, error = "", polling = false;
+  const unit = (id) => `${TEST ? "test " : ""}${sym(id)}`;
+  const view = {
+    title: "Open your offer",
+    html: () => `
+      <div class="sum">
+        <div class="sum-row"><span>${coin(q.giveId)}You put in</span><b>${amt(q.giveAmount, q.giveId)}</b></div>
+        <div class="sum-row"><span>${coin(q.wantId)}You receive</span><b>${amt(q.wantAmount - q.fee, q.wantId)}</b></div>
+        <div class="sum-row"><span>Open until</span><b style="font-size:14px">${new Date(Number(deadline) * 1000).toLocaleString()}</b></div>
+      </div>
+      <div id="ol-box"></div>
+      <details class="more"><summary>Using a developer wallet (tvm-cli)?</summary>
+        <p style="margin:0 0 12px">Wallets that can attach a message can create the offer in one step instead.</p>
+        <button class="btn ghost" id="ol-dev" style="margin-bottom:12px">Show the developer message</button></details>
+      <div class="safe">${ICON.shield}<span>TalonHive never asks for your keys or seed phrase. Anyone who does is trying to steal from you.</span></div>`,
+    bind: (r) => {
+      $("#ol-dev", r).addEventListener("click", () => push(viewListResult(q)));
+      view.live(r);
+    },
+    live: (r) => {
+      const box = $("#ol-box", r);
+      if (!box) return;
+      const now = Date.now() / 1000;
+      if (phase === "fund" && listing) {
+        const live = lots.find((x) => x.lot === listing.lot);
+        if (live) phase = "live";
+        else if (now >= Number(listing.fundBy)) phase = "expired";
+      }
+      if (box.dataset.phase === phase && phase !== "fund") return;
+      if (phase === "fund" && box.dataset.phase === "fund") {
+        $(".live span", box).textContent = `Waiting for your ${sym(q.giveId)} · ${Math.max(0, Math.ceil((Number(listing.fundBy) - now) / 60))} min left`;
+        return;
+      }
+      box.dataset.phase = phase;
+      if (phase === "ready" || phase === "failed") {
+        box.innerHTML = `
+          ${phase === "failed" ? `<p class="err" style="margin-top:14px">${esc(error)}</p>` : ""}
+          <ol class="steps">
+            <li><span>Tap <b>Open my offer</b>. This page creates it on the blockchain, with your price and nothing in it yet.</span></li>
+            <li><span>Send exactly <b>${fmt(q.giveAmount, dec(q.giveId), 9)} ${unit(q.giveId)}</b> to it from your wallet, as a normal transfer, within 15 minutes.</span></li>
+            <li><span>It goes live in the market. When someone buys, <b>${amt(q.wantAmount - q.fee, q.wantId)}</b> arrives in your wallet automatically.</span></li>
+          </ol>
+          <button class="btn light block" style="margin-top:16px" id="ol-go">${phase === "failed" ? "Try again" : "Open my offer"}</button>`;
+        $("#ol-go", box).addEventListener("click", send);
+        return;
+      }
+      if (phase === "sending" || phase === "waiting") {
+        box.innerHTML = `<div class="live"><i></i><span>${phase === "sending" ? "Opening your offer…" : "Waiting for the blockchain to confirm your offer…"}</span></div>`;
+        return;
+      }
+      if (phase === "fund") {
+        const addr = `0:${listing.lot}`;
+        const amount = fmt(q.giveAmount, dec(q.giveId), 9);
+        box.innerHTML = `
+          ${TEST ? `<div class="danger">${ICON.shield}<span><b>Test offer: test coins only.</b> Send from a Shellnet <b>test</b> wallet, never from the Acki Nacki Wallet app or any real wallet: real ${sym(q.giveId)} would go to an address that doesn't exist on mainnet.</span></div>` : ""}
+          <div class="pay" style="margin-top:12px">
+            <div class="k">Send exactly</div>
+            <div class="amount">${amount} <small>${unit(q.giveId)}</small></div>
+            <div class="k" style="margin-bottom:6px">to your offer</div>
+            <div class="addr">${tapCode(addr, 12, 8)}<button class="btn dark" data-copy="${addr}">Copy</button></div>
+            <div class="pay-tools"><button class="btn light" style="border:1px solid #dfe5ef" data-copy="${amount.replace(/,/g, "")}">Copy amount</button>${TEST ? "" : `<button class="btn light" style="border:1px solid #dfe5ef" id="qr-toggle">Show QR</button>`}</div>
+            <div id="qr"></div>
+          </div>
+          <ol class="steps">
+            <li><span>Send <b>exactly</b> that amount, as a normal transfer. A different amount comes straight back.</span></li>
+            <li><span>Your offer goes live as soon as it arrives, with you as the seller.</span></li>
+          </ol>
+          ${q.giveId === 2 ? `<div class="safe">${ICON.shield}<span>Send SHELL <b>as SHELL</b>. Don't convert it to gas first: converted SHELL can't be refunded.</span></div>` : ""}
+          <div class="live"><i></i><span>Waiting for your ${sym(q.giveId)} · ${Math.max(0, Math.ceil((Number(listing.fundBy) - now) / 60))} min left</span></div>`;
+        bindCopy(box);
+        $("#qr-toggle", box)?.addEventListener("click", (e) => {
+          const qr = $("#qr", box);
+          if (!qr.dataset.made && window.QRCode) { try { new window.QRCode(qr, { text: addr, width: 168, height: 168, colorDark: "#0b1224", colorLight: "#ffffff" }); qr.dataset.made = 1; } catch { /* optional */ } }
+          qr.classList.toggle("on"); e.target.textContent = qr.classList.contains("on") ? "Hide QR" : "Show QR";
+        });
+        return;
+      }
+      if (phase === "live") {
+        const l = lots.find((x) => x.lot === listing.lot);
+        box.innerHTML = `<div class="done-card"><div class="check">${ICON.check}</div><h4>Your offer is live</h4>
+          <p>Offer #${esc(l.nonce)} is in the market. You'll be paid automatically when someone buys.<br>
+          To cancel, send any small amount (for example 1 ${sym(q.giveId)}) to it from the same wallet: everything comes back.</p></div>
+          <button class="btn light block" style="margin-top:14px" id="see-offer">See my offer</button>`;
+        $("#see-offer", box).addEventListener("click", () => push(viewTake(l.lot)));
+        return;
+      }
+      if (phase === "expired") {
+        box.innerHTML = `<div class="live warn"><i></i><span>Time's up: no deposit arrived within 15 minutes, so this offer was not opened. Anything sent after this is returned automatically.</span></div>
+          <button class="btn light block" style="margin-top:14px" id="ol-again">Start again</button>`;
+        $("#ol-again", box).addEventListener("click", () => { phase = "ready"; listing = null; view.live(r); });
+      }
+    },
+  };
+
+  async function send() {
+    phase = "sending"; refreshSheet();
+    try {
+      const { key } = await openListing({
+        restBase: net.rest, factoryHex: F, funcId: IDS.openListing, abi: ABI.openListing,
+        giveId: q.giveId, giveAmount: q.giveAmount, wantId: q.wantId, wantAmount: q.wantAmount, deadline,
+      });
+      rememberPrepared(terms);
+      phase = "waiting"; sentAt = Date.now(); refreshSheet();
+      waitForListing(key);
+    } catch (e) {
+      phase = "failed"; error = `Couldn't open the offer: ${e.message}. Nothing was sent from your wallet.`; refreshSheet();
+    }
+  }
+  // A refused openListing (for example too many new offers in the last few minutes) creates nothing and
+  // returns no error, so give the chain a minute to show the ListingOpened event before saying so.
+  async function waitForListing(key) {
+    if (polling) return;
+    polling = true;
+    try {
+      while (phase === "waiting" && Date.now() - sentAt < 60000) {
+        await new Promise((res) => setTimeout(res, 3000));
+        try { listing = await findListing(key); } catch { /* network blip: try again */ }
+        if (listing) { phase = "fund"; break; }
+      }
+      if (phase === "waiting") {
+        phase = "failed";
+        error = "The network didn't open your offer. This usually means many offers were opened in the last few minutes. Please try again shortly. Nothing was sent from your wallet.";
+      }
+    } finally { polling = false; refreshSheet(); }
+  }
+  return view;
 }
 
 function parseWallet(str) {
@@ -571,7 +720,9 @@ function viewMine() {
           const p = PAIRS.find((x) => [x.base, x.quote].includes(l.giveId) && [x.base, x.quote].includes(l.wantId)) || pair();
           return rowHtml(l, p, false) + (l.status === "open" || l.status === "expired" ? `
             <li style="list-style:none;padding:0 12px 12px"><details class="more" style="margin:0"><summary>Cancel and get my ${sym(l.giveId)} back</summary>
-              <p style="margin:0 0 8px">Send the offer ${tapCode(`0:${l.lot}`, 12, 8)} (DApp <code>${short(F)}</code>) a message with <b>no coins</b>, bounce on, carrying:</p>
+              <p style="margin:0 0 8px">From the wallet that created the offer, send <b>any small amount</b> (for example 1 ${sym(l.giveId)}) to the offer, as a normal transfer. Everything comes back to you, including that amount.</p>
+              <div class="codebox">${tapCode(`0:${l.lot}`, 12, 8)}<button class="btn ghost" data-copy="0:${l.lot}">Copy</button></div>
+              <p style="margin:0 0 8px">Developer wallets can instead send it a message with <b>no coins</b>, bounce on, carrying:</p>
               <div class="codebox"><code>${cancel}</code><button class="btn ghost" data-copy="${cancel}">Copy</button></div>
               ${l.status === "expired" ? `<p style="margin:0 0 12px">It has expired, so anyone can also return it to you.</p>` : ""}</details></li>` : "");
         }).join("")}</ul>`;
@@ -610,6 +761,8 @@ async function main() {
     LotCreated: await abiId(eventSignature(ABI.LotCreated)),
     createLot: await abiId(functionSignature(ABI.createLot)),
     reclaim: await abiId(functionSignature(ABI.reclaim)),
+    openListing: await abiId(functionSignature(ABI.openListing)),
+    ListingOpened: await abiId(eventSignature(ABI.ListingOpened)),
   };
   $("#factory").outerHTML = tapCode(`${F}::${F}`, 8, 6);
   bindCopy(document.querySelector("footer"));

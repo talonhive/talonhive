@@ -2,8 +2,8 @@
 // Rules: (1) same-origin app files are fetched fresh first and only served from cache when offline,
 // so updates show immediately; (2) blockchain data (other origins) is never cached or touched, so
 // the app can never show stale offers as live; (3) only successful GET responses are stored.
-const CACHE = "talonhive-shell-v1";
-const SHELL = ["./", "./index.html", "./app.js", "./config.js", "./boc.js", "./favicon.svg",
+const CACHE = "talonhive-shell-v2";
+const SHELL = ["./", "./index.html", "./app.js", "./config.js", "./boc.js", "./send.js", "./favicon.svg",
   "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png"];
 
 self.addEventListener("install", (e) => {
