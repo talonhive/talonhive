@@ -10,6 +10,12 @@ import "AtomicSwap.sol";
 /// checks the lot, then deploys an AtomicSwap carrying those coins (born funded) plus initial gas,
 /// all in the same transaction. The factory never keeps a maker's coins.
 ///
+/// Listing by transfer (docs/LISTING_BY_TRANSFER.md): for wallets that can only make plain transfers, the
+/// web page sends openListing() as an unsigned external message; the factory deploys an AWAITING lot with
+/// the terms and no coins, and the maker's plain transfer of the give currency opens it. Unfunded listings
+/// expire after LISTING_TTL and anyone may close them (their gas returns here). openListing is rate-limited
+/// (LISTINGS_PER_WINDOW per LISTING_WINDOW), which bounds what spam can cost the DApp's gas credit.
+///
 /// Admin: the owner can only (a) send raw messages from the factory's own balance, used to create
 /// the DappConfig and to withdraw fees, limited to ECC the factory itself holds (`_held`), and
 /// (b) nothing else. Lots are immutable and hold user funds.
@@ -25,6 +31,8 @@ contract SwapFactory {
     uint16 constant ERR_LOW_GAS     = 108;
     uint16 constant ERR_UNEXPECTED  = 109;
     uint16 constant ERR_DELAY       = 110;
+    uint16 constant ERR_BUSY        = 111;
+    uint16 constant ERR_NOT_LOT     = 112;
 
     uint16 constant MAX_FEE_BPS     = 100;          // 1%, same cap as AtomicSwap
     uint64 constant MAX_TTL         = 7 days;
@@ -33,6 +41,10 @@ contract SwapFactory {
     uint64 constant DEPLOY_MARGIN   = 0.2 vmshell;  // plus fees, so the deploy cannot fail for gas
     uint64 constant MIN_GAS         = 5 vmshell;
     uint64 constant TOPUP           = 10 vmshell;
+    uint64 constant LISTING_GAS     = 0.1 vmshell;  // an AWAITING lot needs little; it mints more once funded
+    uint64 constant LISTING_TTL     = 15 minutes;   // time to send the deposit
+    uint64 constant LISTING_WINDOW  = 10 minutes;
+    uint16 constant LISTINGS_PER_WINDOW = 12;
 
     uint32 constant NACKL = 1;
     uint32 constant SHELL = 2;
@@ -46,10 +58,17 @@ contract SwapFactory {
     mapping(uint32 => uint128) _minGive;
     // ECC the factory itself owns (funding, fees, gas returned by closed lots). Never a maker's coins.
     mapping(uint32 => uint128) _held;
+    uint64  _windowStart;           // openListing rate limit
+    uint16  _windowCount;
 
     event LotCreated(
         uint64 nonce, address lot, address maker, uint256 makerDapp,
         uint32 giveId, uint128 giveAmount, uint32 wantId, uint128 wantAmount, uint64 deadline
+    );
+    /// key: chosen by the page that sent openListing, so it can find its listing's address.
+    event ListingOpened(
+        uint64 key, uint64 nonce, address lot,
+        uint32 giveId, uint128 giveAmount, uint32 wantId, uint128 wantAmount, uint64 deadline, uint64 fundBy
     );
     event Refunded(address to, uint16 reason);
 
@@ -105,9 +124,54 @@ contract SwapFactory {
         address lot = new AtomicSwap{
             stateInit: _stateInit(_lots), value: LOT_GAS, flag: 1, bounce: false, currencies: ecc
         }(msg.sender, makerDapp, giveId, give, wantId, wantAmount, deadline, _feeBps,
-          address(this), _dapp, _closeDelay);
+          address(this), _dapp, _closeDelay, 0);
         emit LotCreated(_lots, lot, msg.sender, makerDapp, giveId, give, wantId, wantAmount, deadline);
         _lots++;
+    }
+
+    /// Open a listing that the maker funds with a plain transfer. Meant to be sent as an unsigned external
+    /// message by the web page (nothing is at stake: the lot holds no coins until the maker's deposit).
+    /// All checks run before tvm.accept(), so a refused call costs the DApp nothing.
+    function openListing(uint64 key, uint32 giveId, uint128 giveAmount, uint32 wantId, uint128 wantAmount,
+                         uint64 deadline) external {
+        if (_refused(_listingError(giveId, giveAmount, wantId, wantAmount, deadline))) { return; }
+        tvm.accept();
+        _ensureGas();
+        if (block.timestamp >= _windowStart + LISTING_WINDOW) {
+            _windowStart = uint64(block.timestamp);
+            _windowCount = 0;
+        }
+        _windowCount++;
+        uint64 fundBy = uint64(block.timestamp) + LISTING_TTL;
+        address lot = new AtomicSwap{
+            stateInit: _stateInit(_lots), value: LISTING_GAS, flag: 1, bounce: false
+        }(address(0), 0, giveId, giveAmount, wantId, wantAmount, deadline, _feeBps,
+          address(this), _dapp, _closeDelay, fundBy);
+        emit ListingOpened(key, _lots, lot, giveId, giveAmount, wantId, wantAmount, deadline, fundBy);
+        _lots++;
+    }
+
+    function _listingError(uint32 giveId, uint128 giveAmount, uint32 wantId, uint128 wantAmount, uint64 deadline)
+        private view returns (uint16)
+    {
+        if (!msg.currencies.empty()) { return ERR_UNEXPECTED; }
+        if (giveId == wantId || !_minGive.exists(giveId) || !_minGive.exists(wantId)) { return ERR_PAIR; }
+        if (giveAmount < _minGive[giveId]) { return ERR_TOO_SMALL; }
+        if (wantAmount == 0) { return ERR_PRICE; }
+        // The offer must outlive the deposit window (the lot's constructor requires fundBy < deadline).
+        if (deadline <= block.timestamp + LISTING_TTL || deadline > block.timestamp + MAX_TTL) { return ERR_DEADLINE; }
+        if (block.timestamp < _windowStart + LISTING_WINDOW && _windowCount >= LISTINGS_PER_WINDOW) { return ERR_BUSY; }
+        if (address(this).balance < LISTING_GAS + DEPLOY_MARGIN) { return ERR_LOW_GAS; }
+        return 0;
+    }
+
+    /// Sent by a listing when its maker's deposit arrives: emit LotCreated so order books index it like any
+    /// lot. Only lot `nonce` itself can call this (its address is derived from our code and the nonce).
+    function onListingFunded(uint64 nonce, address maker, uint32 giveId, uint128 giveAmount,
+                             uint32 wantId, uint128 wantAmount, uint64 deadline) external {
+        require(nonce < _lots && msg.sender.value == tvm.hash(_stateInit(nonce)), ERR_NOT_LOT);
+        tvm.accept();
+        emit LotCreated(nonce, msg.sender, maker, _dapp, giveId, giveAmount, wantId, wantAmount, deadline);
     }
 
     function _createError(uint32 giveId, uint32 wantId, uint128 wantAmount, uint64 deadline, uint128 give)

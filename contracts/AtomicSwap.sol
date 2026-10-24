@@ -2,10 +2,20 @@ pragma gosh-solidity >=0.76.1;
 pragma AbiHeader expire;
 pragma AbiHeader pubkey;
 
+/// The factory, as seen by a lot (a full import would be circular).
+interface IListingRegistry {
+    function onListingFunded(
+        uint64 nonce, address maker, uint32 giveId, uint128 giveAmount,
+        uint32 wantId, uint128 wantAmount, uint64 deadline
+    ) external;
+}
+
 /// AtomicSwap — one immutable, non-custodial lot. FIXED price.
 ///
-/// Invariants (docs/CONTRACT_PLAN.md):
-///   I1 exists iff funded from birth      I2 funds leave only to maker / taker / treasury (fee ≤ 1%)
+/// Invariants (docs/CONTRACT_PLAN.md, docs/LISTING_BY_TRANSFER.md):
+///   I1 funded from birth, or a listing AWAITING its maker's deposit for at most LISTING_TTL with
+///      nothing at stake (its terms fixed; the first exact deposit makes the sender the maker)
+///   I2 funds leave only to maker / taker / treasury (fee ≤ 1%)
 ///   I3 fills at most once                I4 every incoming coin is used once or returned
 ///   I5 an open lot can always be reclaimed to its maker   I6 no admin, no upgrade
 ///
@@ -27,6 +37,10 @@ pragma AbiHeader pubkey;
 ///   - Pay-to-take: a plain transfer of the want currency to an open lot fills it, like take().
 ///   - reclaim() after the deadline, close() and release() need no wallet: anyone may send them,
 ///     including as unsigned external messages. Coins still go only to their recorded owners.
+///   - Listing by transfer: the factory deploys an AWAITING lot (terms only, no coins); a plain transfer of
+///     exactly giveAmount of the give currency before fundBy opens it, with the sender as maker.
+///   - Cancel by transfer: any plain transfer from the maker to an open lot returns the lot's coins and
+///     the transfer to the maker (so a maker can no longer fill their own lot by mistake).
 contract AtomicSwap {
     uint16 constant ERR_NOT_FACTORY  = 200;
     uint16 constant ERR_NOT_OPEN     = 201;
@@ -40,6 +54,7 @@ contract AtomicSwap {
     uint16 constant ERR_UNEXPECTED   = 209;
     uint16 constant ERR_TOO_EARLY    = 210;
     uint16 constant ERR_NOT_EMPTY    = 211;
+    uint16 constant ERR_WRONG_AMOUNT = 212;
 
     uint16  constant MAX_FEE_BPS     = 100;          // hard cap: 1%
     uint64  constant MIN_CLOSE_DELAY = 60;           // seconds; bounces return within seconds
@@ -51,6 +66,7 @@ contract AtomicSwap {
     uint8 constant OPEN      = 0;
     uint8 constant FILLED    = 1;
     uint8 constant RECLAIMED = 2;
+    uint8 constant AWAITING  = 3;   // listing: terms fixed, waiting for the maker's deposit until _fundBy
 
     // Identity: address = hash(code, factory, nonce).
     address static _factory;
@@ -63,6 +79,7 @@ contract AtomicSwap {
     uint64  _deadline;  uint16  _feeBps;
     address _treasury;  uint256 _treasuryDapp;
     uint64  _closeDelay;
+    uint64  _fundBy;    // listings only: deposit deadline (0 = funded from birth)
 
     // Lifecycle.
     uint8   _state;
@@ -80,30 +97,38 @@ contract AtomicSwap {
     event Refunded(address to, uint16 reason);
     event Claimed(address owner, address by);
     event Closed(address by);
+    event Funded(address maker);
 
+    /// fundBy = 0: born funded (createLot). fundBy > 0: a listing awaiting its maker's deposit (openListing);
+    /// maker is then ignored and set by the deposit.
     constructor(
         address maker, uint256 makerDapp,
         uint32 giveId, uint128 giveAmount,
         uint32 wantId, uint128 wantAmount,
         uint64 deadline, uint16 feeBps,
         address treasury, uint256 treasuryDapp,
-        uint64 closeDelay
+        uint64 closeDelay, uint64 fundBy
     ) {
         // MUST NOT FAIL in practice: on Acki Nacki a failed constructor leaves the code installed and
         // uninitialised, with the maker's coins inside and every call reverting (exit 76). SwapFactory
         // validates every condition below before deploying; these requires are a second line only.
         require(msg.sender == _factory, ERR_NOT_FACTORY);
         require(feeBps <= MAX_FEE_BPS && giveId != wantId && wantAmount > 0 && giveAmount > 0
-                && closeDelay >= MIN_CLOSE_DELAY, ERR_BAD_PARAMS);
-        // I1: the factory attached the maker's coins to the deploy message.
-        require(uint128(address(this).currencies[giveId]) >= giveAmount, ERR_BAD_PARAMS);
-        _maker = maker;         _makerDapp = makerDapp;
+                && closeDelay >= MIN_CLOSE_DELAY && (fundBy == 0 || fundBy < deadline), ERR_BAD_PARAMS);
+        // I1: the factory attached the maker's coins to the deploy message (listings: nothing at stake yet).
+        require(fundBy != 0 || uint128(address(this).currencies[giveId]) >= giveAmount, ERR_BAD_PARAMS);
         _giveId = giveId;       _giveAmount = giveAmount;
         _wantId = wantId;       _wantAmount = wantAmount;
         _deadline = deadline;   _feeBps = feeBps;
         _treasury = treasury;   _treasuryDapp = treasuryDapp;
         _closeDelay = closeDelay;
-        _state = OPEN;
+        _fundBy = fundBy;
+        if (fundBy == 0) {
+            _maker = maker;     _makerDapp = makerDapp;
+            _state = OPEN;
+        } else {
+            _state = AWAITING;
+        }
     }
 
     /// Taker attaches at least `wantAmount` of the want currency (flag 1), and nothing else.
@@ -116,9 +141,14 @@ contract AtomicSwap {
         _fill(msg.sender, takerDapp, paid);
     }
 
-    /// Pay-to-take: a plain transfer of the want currency (all the Acki Nacki Wallet app can send)
-    /// fills the lot exactly like take(). The give currency goes back to the sender's account.
+    /// Plain transfers (all the Acki Nacki Wallet app can send):
+    ///   - to an AWAITING listing: the maker's deposit (_fund);
+    ///   - from the maker to an open lot: cancel (_cancel);
+    ///   - otherwise, pay-to-take: the want currency fills the lot exactly like take(), and the give
+    ///     currency goes back to the sender's account.
     receive() external {
+        if (_state == AWAITING) { _fund(); return; }
+        if (_state == OPEN && msg.sender == _maker) { _cancel(); return; }
         uint128 paid = uint128(msg.currencies[_wantId]);
         if (_refused(_takeError(paid))) { return; }
         tvm.accept();
@@ -171,9 +201,11 @@ contract AtomicSwap {
     /// bounced payout has already come back (a bounce to a deleted account would be lost).
     function close() external {
         uint16 err = 0;
+        // An AWAITING listing counts as settled at its deposit deadline (a late deposit is refunded).
+        uint64 settled = _state == AWAITING ? _fundBy : _settledAt;
         if (!msg.currencies.empty()) { err = ERR_UNEXPECTED; }
         else if (_state == OPEN) { err = ERR_NOT_OPEN; }
-        else if (block.timestamp < _settledAt + _closeDelay) { err = ERR_TOO_EARLY; }
+        else if (block.timestamp < settled + _closeDelay) { err = ERR_TOO_EARLY; }
         else if (uint128(address(this).currencies[_giveId]) != 0
                  || uint128(address(this).currencies[_wantId]) != 0 || _anyOwed()) { err = ERR_NOT_EMPTY; }
         if (_refused(err)) { return; }
@@ -208,6 +240,59 @@ contract AtomicSwap {
     }
 
     // ---- internals ----
+
+    /// The maker's deposit into an AWAITING listing: exactly giveAmount of the give currency, and nothing
+    /// else, before fundBy. The sender becomes the maker (routed by account id, like takers). Anyone else's
+    /// deposit after that is refunded (the lot is then OPEN, and the give currency is not the want currency).
+    function _fund() private {
+        uint128 got = uint128(msg.currencies[_giveId]);
+        if (_refused(_fundError(got))) { return; }
+        tvm.accept();
+        _ensureGas();
+        _maker = msg.sender;
+        _makerDapp = _treasuryDapp;
+        _state = OPEN;
+        emit Funded(msg.sender);
+        // Lets the factory emit LotCreated, so order books index listings like any other lot.
+        IListingRegistry(_factory).onListingFunded{value: MSG_VALUE, bounce: false, flag: 1}(
+            _nonce, msg.sender, _giveId, _giveAmount, _wantId, _wantAmount, _deadline);
+    }
+
+    function _fundError(uint128 got) private view returns (uint16) {
+        if (block.timestamp >= _fundBy) { return ERR_EXPIRED; }
+        for ((uint32 id, varuint32 amount) : msg.currencies) {
+            if (id != _giveId && amount != 0) { return ERR_UNEXPECTED; }
+        }
+        if (got != _giveAmount) { return ERR_WRONG_AMOUNT; }
+        // ARRIVED as that currency (flag-16 SHELL is listed but converted to gas: spike 6 C4).
+        if (uint128(address(this).currencies[_giveId]) < got + _owedTotal[_giveId]) { return ERR_NOT_ARRIVED; }
+        return 0;
+    }
+
+    /// Cancel by transfer: the maker sent coins (any amount of the give or want currency) to their open lot.
+    /// Returns the lot's coins plus whatever of the transfer really arrived, in one payout, like reclaim().
+    function _cancel() private {
+        uint16 err = 0;
+        for ((uint32 id, varuint32 amount) : msg.currencies) {
+            if (id != _giveId && id != _wantId && amount != 0) { err = ERR_UNEXPECTED; }
+        }
+        if (_refused(err)) { return; }
+        tvm.accept();
+        _ensureGas();
+        // What arrived of each currency, never coins held for others (_owedTotal) or the lot's own give.
+        uint128 backGive = math.min(uint128(msg.currencies[_giveId]),
+            _free(_giveId, _owedTotal[_giveId] + _giveAmount));
+        uint128 backWant = math.min(uint128(msg.currencies[_wantId]), _free(_wantId, _owedTotal[_wantId]));
+        _state = RECLAIMED;
+        _settledAt = uint64(block.timestamp);
+        _pay(_maker, _makerDapp, _giveId, _giveAmount + backGive, _wantId, backWant);
+        emit Reclaimed(_maker, msg.sender);
+    }
+
+    function _free(uint32 id, uint128 reserved) private pure returns (uint128) {
+        uint128 held = uint128(address(this).currencies[id]);
+        return held > reserved ? held - reserved : 0;
+    }
 
     function _takeError(uint128 paid) private view returns (uint16) {
         if (_state != OPEN) { return ERR_NOT_OPEN; }
@@ -365,5 +450,10 @@ contract AtomicSwap {
 
     function getOwedTotal() external view returns (uint128 give, uint128 want) {
         return (_owedTotal[_giveId], _owedTotal[_wantId]);
+    }
+
+    /// Listings: deposit deadline (0 = funded from birth). state AWAITING (3) until the deposit arrives.
+    function getFundBy() external view returns (uint64 fundBy) {
+        return _fundBy;
     }
 }
