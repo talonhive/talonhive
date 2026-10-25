@@ -99,7 +99,7 @@ new_lot() {  # giveNackl wantShell deadlineSecs -> sets LOT (hex)
   local before; before=$(tvm-cli -j run "$FA" getInfo '{}' --abi "$FACT_ABI" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("lots",""))')
   [[ "$before" =~ ^[0-9]+$ ]] || die "factory getInfo did not return a lot count"
   local dl=$(( $(date +%s) + $3 ))
-  local p; p=$(body createLot "{\"giveId\":1,\"wantId\":2,\"wantAmount\":\"$(( $2 * N ))\",\"deadline\":\"$dl\",\"makerDapp\":\"0x$MHEX\"}" "$FACT_ABI")
+  local p; p=$(body createLot "{\"giveId\":1,\"wantId\":2,\"wantAmount\":\"$(( $2 * N ))\",\"deadline\":\"$dl\",\"makerDapp\":\"0x$MHEX\",\"wantStart\":\"$(( $2 * N ))\",\"dropEnd\":\"0\",\"takerId\":\"0\"}" "$FACT_ABI")
   wsend "$MKEYS" "$MHEX" "$FHEX" "$FHEX" "{\"1\":\"$(( $1 * N ))\"}" 1 "$p"
   sleep 20
   LOT=$(tvm-cli -j run "$FA" lotAccountId "{\"nonce\":\"$before\"}" --abi "$FACT_ABI" | python3 -c 'import json,sys
@@ -297,7 +297,7 @@ say "T10 createLot carrying an unexpected extra currency is refused (F3)"
 BEFORE=$(tvm-cli -j run "$FA" getInfo '{}' --abi "$FACT_ABI" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("lots",""))')
 read MN MK MS <<< "$(bal "$MHEX" "$MHEX")"
 DL=$(( $(date +%s) + 3600 ))
-P=$(body createLot "{\"giveId\":1,\"wantId\":2,\"wantAmount\":\"$(( 50 * N ))\",\"deadline\":\"$DL\",\"makerDapp\":\"0x$MHEX\"}" "$FACT_ABI")
+P=$(body createLot "{\"giveId\":1,\"wantId\":2,\"wantAmount\":\"$(( 50 * N ))\",\"deadline\":\"$DL\",\"makerDapp\":\"0x$MHEX\",\"wantStart\":\"$(( 50 * N ))\",\"dropEnd\":\"0\",\"takerId\":\"0\"}" "$FACT_ABI")
 wsend "$MKEYS" "$MHEX" "$FHEX" "$FHEX" "{\"1\":\"$(( 1000 * N ))\",\"2\":\"$N\"}" 1 "$P"; sleep 25
 read MN2 MK2 MS2 <<< "$(bal "$MHEX" "$MHEX")"
 AFTER=$(tvm-cli -j run "$FA" getInfo '{}' --abi "$FACT_ABI" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("lots",""))')

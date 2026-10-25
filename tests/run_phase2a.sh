@@ -117,7 +117,7 @@ new_lot() {  # giveNackl wantShell deadlineSecs -> sets LOT (hex)
   local before; before=$(tvm-cli -j run "$FA" getInfo '{}' --abi "$FACT_ABI" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("lots",""))')
   [[ "$before" =~ ^[0-9]+$ ]] || die "factory getInfo did not return a lot count"
   local dl=$(( $(date +%s) + $3 ))
-  local p; p=$(body createLot "{\"giveId\":1,\"wantId\":2,\"wantAmount\":\"$(( $2 * N ))\",\"deadline\":\"$dl\",\"makerDapp\":\"0x$MHEX\"}" "$FACT_ABI")
+  local p; p=$(body createLot "{\"giveId\":1,\"wantId\":2,\"wantAmount\":\"$(( $2 * N ))\",\"deadline\":\"$dl\",\"makerDapp\":\"0x$MHEX\",\"wantStart\":\"$(( $2 * N ))\",\"dropEnd\":\"0\",\"takerId\":\"0\"}" "$FACT_ABI")
   wsend "$MKEYS" "$MHEX" "$FHEX" "$FHEX" "{\"1\":\"$(( $1 * N ))\"}" 1 "$p"
   sleep 20
   LOT=$(tvm-cli -j run "$FA" lotAccountId "{\"nonce\":\"$before\"}" --abi "$FACT_ABI" | python3 -c 'import json,sys
@@ -316,7 +316,7 @@ say "T10 createLot carrying an unexpected extra currency is refused (F3)"
 BEFORE=$(tvm-cli -j run "$FA" getInfo '{}' --abi "$FACT_ABI" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("lots",""))')
 read MN MK MS <<< "$(bal "$MHEX" "$MHEX")"
 DL=$(( $(date +%s) + 3600 ))
-P=$(body createLot "{\"giveId\":1,\"wantId\":2,\"wantAmount\":\"$(( 50 * N ))\",\"deadline\":\"$DL\",\"makerDapp\":\"0x$MHEX\"}" "$FACT_ABI")
+P=$(body createLot "{\"giveId\":1,\"wantId\":2,\"wantAmount\":\"$(( 50 * N ))\",\"deadline\":\"$DL\",\"makerDapp\":\"0x$MHEX\",\"wantStart\":\"$(( 50 * N ))\",\"dropEnd\":\"0\",\"takerId\":\"0\"}" "$FACT_ABI")
 wsend "$MKEYS" "$MHEX" "$FHEX" "$FHEX" "{\"1\":\"$(( 1000 * N ))\",\"2\":\"$N\"}" 1 "$P"; sleep 25
 read MN2 MK2 MS2 <<< "$(bal "$MHEX" "$MHEX")"
 AFTER=$(tvm-cli -j run "$FA" getInfo '{}' --abi "$FACT_ABI" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("lots",""))')
@@ -408,7 +408,7 @@ check "P8 taker's 4 SHELL refunded" "$TS" "$(shell "$THEX" "$THEX")"
 
 say "P9 factory: createLot sent NON-bounceable with a bad deadline is refunded"
 BEFORE=$(lot_count); MK=$(nackl "$MHEX" "$MHEX"); FK=$(nackl "$FHEX" "$FHEX")
-P=$(body createLot "{\"giveId\":1,\"wantId\":2,\"wantAmount\":\"$(( 5 * N ))\",\"deadline\":\"1\",\"makerDapp\":\"0x$MHEX\"}" "$FACT_ABI")
+P=$(body createLot "{\"giveId\":1,\"wantId\":2,\"wantAmount\":\"$(( 5 * N ))\",\"deadline\":\"1\",\"makerDapp\":\"0x$MHEX\",\"wantStart\":\"$(( 5 * N ))\",\"dropEnd\":\"0\",\"takerId\":\"0\"}" "$FACT_ABI")
 wsend_nb "$MKEYS" "$MHEX" "$FHEX" "$FHEX" "{\"1\":\"$(( 1000 * N ))\"}" 1 "$P"; sleep 25
 check "P9 no lot created" "$BEFORE" "$(lot_count)"
 check "P9 maker's 1000 NACKL refunded" "$MK" "$(nackl "$MHEX" "$MHEX")"
@@ -449,7 +449,7 @@ psend "$TKEYS" "$THEX" "$FHEX" "$FHEX" false "{\"2\":\"$N\"}" 16; sleep 25
 check "P13 factory ledger == real SHELL balance (after a flag-16 donation)" "$(shell "$FHEX" "$FHEX")" "$(held_shell)"
 BEFORE=$(lot_count)
 DL=$(( $(date +%s) + 3600 ))
-P=$(body createLot "{\"giveId\":2,\"wantId\":1,\"wantAmount\":\"$(( 25000 * N ))\",\"deadline\":\"$DL\",\"makerDapp\":\"0x$MHEX\"}" "$FACT_ABI")
+P=$(body createLot "{\"giveId\":2,\"wantId\":1,\"wantAmount\":\"$(( 25000 * N ))\",\"deadline\":\"$DL\",\"makerDapp\":\"0x$MHEX\",\"wantStart\":\"$(( 25000 * N ))\",\"dropEnd\":\"0\",\"takerId\":\"0\"}" "$FACT_ABI")
 wsend "$MKEYS" "$MHEX" "$FHEX" "$FHEX" "{\"2\":\"$(( 100 * N ))\"}" 1 "$P"; sleep 25
 check "P13 SHELL-giving lot created" "$(( BEFORE + 1 ))" "$(lot_count)"
 L14=$(tvm-cli -j run "$FA" lotAccountId "{\"nonce\":\"$BEFORE\"}" --abi "$FACT_ABI" | python3 -c 'import json,sys

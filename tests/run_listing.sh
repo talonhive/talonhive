@@ -4,21 +4,23 @@
 # another plain transfer. Every check is a real transaction on Shellnet (PASS / FAIL).
 # Same test keys and wallets as run_phase2a.sh; deploys a NEW factory (the lot code changed).
 #
-# Run from WSL (~30 minutes, unattended: one listing is left to expire):
-#   cd <repo>/tests && bash run_listing.sh          all checks (L1-L11, then U1-U7 with USDC)
+# Run from WSL (~45 minutes, unattended: one listing is left to expire, drops are left to fall):
+#   cd <repo>/tests && bash run_listing.sh          all checks (L1-L11, U1-U7 with USDC, P1-P4 and D1-D5)
 #   cd <repo>/tests && bash run_listing.sh usdc     only the USDC checks (~8 minutes)
-# Log: tests/out/listing.log (tests/out/listing-usdc.log for the USDC-only run)
+#   cd <repo>/tests && bash run_listing.sh offers   only private and drop offers (~15 minutes)
+# Log: tests/out/listing.log (listing-usdc.log / listing-offers.log for the partial runs)
 set -u
 PART=${1:-all}
 cd "$(dirname "$0")"
 mkdir -p out build
-LOG=out/listing.log; [ "$PART" = usdc ] && LOG=out/listing-usdc.log
+LOG=out/listing.log; [ "$PART" = usdc ] && LOG=out/listing-usdc.log; [ "$PART" = offers ] && LOG=out/listing-offers.log
 : > "$LOG"
 exec > >(tee -a "$LOG") 2>&1
 
 OWNER=../spike.keys.json
 MKEYS=../maker.keys.json
 TKEYS=../taker.keys.json
+SKEYS=../stranger.keys.json        # a third wallet: neither the seller nor a private offer's buyer
 G=0000000000000000000000000000000000000000000000000000000000000000::1111111111111111111111111111111111111111111111111111111111111111
 GABI=~/tools/GiverV3.abi.json
 DAPPROOT=0000000000000000000000000000000000000000000000000000000000000000::9999999999999999999999999999999999999999999999999999999999999999
@@ -63,6 +65,7 @@ jget()   { python3 -c "import json,sys; print(json.load(sys.stdin).get('$1','?')
 
 lot_state() { tvm-cli -j run "$FHEX::$1" getStatus '{}' --abi "$SWAP_ABI" | jget state; }
 lot_maker() { tvm-cli -j run "$FHEX::$1" getTerms '{}' --abi "$SWAP_ABI" | jget maker; }
+lot_offer() { tvm-cli -j run "$FHEX::$1" getOffer '{}' --abi "$SWAP_ABI" | jget "$2"; }   # lotHex field
 lot_fundby() { tvm-cli -j run "$FHEX::$1" getFundBy '{}' --abi "$SWAP_ABI" | jget fundBy; }
 lot_count() { tvm-cli -j run "$FA" getInfo '{}' --abi "$FACT_ABI" | jget lots; }
 
@@ -98,10 +101,14 @@ v=v[2:] if v.startswith("0x") else v
 print(v.lower().rjust(64,"0"))'
 }
 
-open_listing_raw() {  # giveId giveAmount wantId wantAmount deadlineSecs (amounts in smallest units)
+open_listing_raw() {  # giveId giveAmount wantId wantAmount deadlineSecs [wantStart dropEndSecs takerHex]
+  # Amounts in smallest units. Defaults: fixed price (wantStart = wantAmount), public (takerId 0).
   local dl=$(( $(date +%s) + $5 ))
+  local ws=${6:-$4} de=0 tk=0
+  [ -n "${7:-}" ] && de=$(( $(date +%s) + $7 ))
+  [ -n "${8:-}" ] && tk="0x$8"
   tvm-cli -j call "$FA" openListing \
-    "{\"key\":\"$RANDOM$RANDOM\",\"giveId\":$1,\"giveAmount\":\"$2\",\"wantId\":$3,\"wantAmount\":\"$4\",\"deadline\":\"$dl\"}" \
+    "{\"key\":\"$RANDOM$RANDOM\",\"giveId\":$1,\"giveAmount\":\"$2\",\"wantId\":$3,\"wantAmount\":\"$4\",\"deadline\":\"$dl\",\"wantStart\":\"$ws\",\"dropEnd\":\"$de\",\"takerId\":\"$tk\"}" \
     --abi "$FACT_ABI" 2>&1 | grep -E '"(exit_code|aborted|message)"' | tr -d '\n '; echo
 }
 open_listing() { open_listing_raw 1 "$(( $1 * N ))" 2 "$(( $2 * N ))" "$3"; }   # giveNackl wantShell deadlineSecs
@@ -126,14 +133,15 @@ LOT_CODE=$(tvm-cli -j decode stateinit --tvc ../contracts/AtomicSwap.tvc | jget 
 [ -n "$LOT_CODE" ] && [ "$LOT_CODE" != "?" ] || die "no lot code"
 
 say "test keys and addresses (Shellnet only)"
-for K in "$OWNER" "$MKEYS" "$TKEYS"; do [ -f "$K" ] || tvm-cli genphrase --dump "$K" >/dev/null; done
-cp TestWallet.tvc build/maker.tvc; cp TestWallet.tvc build/taker.tvc
+for K in "$OWNER" "$MKEYS" "$TKEYS" "$SKEYS"; do [ -f "$K" ] || tvm-cli genphrase --dump "$K" >/dev/null; done
+cp TestWallet.tvc build/maker.tvc; cp TestWallet.tvc build/taker.tvc; cp TestWallet.tvc build/stranger.tvc
 cp ../contracts/SwapFactory.tvc build/factory_listing.tvc
 MHEX=$(genaddr_save "$WAL_ABI" build/maker.tvc "$MKEYS");   is_hex64 "$MHEX" || die "maker addr"
 THEX=$(genaddr_save "$WAL_ABI" build/taker.tvc "$TKEYS");   is_hex64 "$THEX" || die "taker addr"
+SHEX=$(genaddr_save "$WAL_ABI" build/stranger.tvc "$SKEYS"); is_hex64 "$SHEX" || die "stranger addr"
 FHEX=$(genaddr_save "$FACT_ABI" build/factory_listing.tvc "$OWNER"); is_hex64 "$FHEX" || die "factory addr"
 FA="$FHEX::$FHEX"
-echo "maker   $MHEX::$MHEX"; echo "taker   $THEX::$THEX"; echo "factory $FA"
+echo "maker   $MHEX::$MHEX"; echo "taker   $THEX::$THEX"; echo "stranger $SHEX::$SHEX"; echo "factory $FA"
 
 say "fund from the giver"
 give "0:$MHEX" '{"2":"3000000000"}' 16
@@ -144,6 +152,8 @@ give "0:$THEX" "{\"1\":\"$(( 1000 * N ))\"}" 1
 give "0:$THEX" "{\"2\":\"$(( 200 * N ))\"}" 1
 give "0:$MHEX" "{\"3\":\"$(( 50 * U ))\"}" 1      # the giver mints test USDC on demand
 give "0:$THEX" "{\"3\":\"$(( 50 * U ))\"}" 1
+give "0:$SHEX" '{"2":"3000000000"}' 16
+give "0:$SHEX" "{\"2\":\"$(( 200 * N ))\"}" 1
 give "0:$FHEX" '{"2":"5000000000"}' 16
 [ "$PART" = usdc ] || give "0:$FHEX" "{\"2\":\"$(( 130 * N ))\"}" 1
 sleep 20
@@ -151,9 +161,10 @@ sleep 20
 say "deploy wallets (if needed) and the new factory"
 deploy_until_ready "$WAL_ABI" build/maker.tvc "$MKEYS" '{}' "$MHEX" rejecting
 deploy_until_ready "$WAL_ABI" build/taker.tvc "$TKEYS" '{}' "$THEX" rejecting
+deploy_until_ready "$WAL_ABI" build/stranger.tvc "$SKEYS" '{}' "$SHEX" rejecting
 deploy_until_ready "$FACT_ABI" build/factory_listing.tvc "$OWNER" "{\"lotCode\":\"$LOT_CODE\",\"feeBps\":\"100\",\"closeDelay\":\"60\"}" "$FHEX" getInfo
-for W in maker taker; do
-  if [ "$W" = maker ]; then K=$MKEYS; H=$MHEX; else K=$TKEYS; H=$THEX; fi
+for W in maker taker stranger; do
+  case $W in maker) K=$MKEYS; H=$MHEX;; taker) K=$TKEYS; H=$THEX;; *) K=$SKEYS; H=$SHEX;; esac
   R=$(tvm-cli -j run "$H::$H" rejecting '{}' --abi "$WAL_ABI" | python3 -c 'import json,sys; print(str(json.load(sys.stdin).get("rejecting","")).lower())')
   if [ "$R" != "false" ]; then
     tvm-cli -j call "$H::$H" setRejecting '{"value":false}' --abi "$WAL_ABI" --sign "$K" | grep -E '"exit_code"' | tr -d '\n '; echo
@@ -174,7 +185,7 @@ else
 fi
 lot_count | grep -qE '^[0-9]+$' || die "factory getInfo failed"
 
-if [ "$PART" != usdc ]; then
+if [ "$PART" = all ]; then
 # =====================================================================
 say "L1 a page opens a listing with an unsigned external message (no wallet)"
 new_listing 1000 50 7200; LX=$LOT      # LX is left unfunded to test expiry at the end
@@ -242,7 +253,7 @@ check "L8 maker's 1 SHELL came back too" "$MS" "$(shell "$MHEX" "$MHEX")"
 
 say "L9 a lot made with createLot: the maker's plain transfer cancels it (no self-fill)"
 B=$(lot_count)
-P=$(body createLot "{\"giveId\":1,\"wantId\":2,\"wantAmount\":\"$(( 50 * N ))\",\"deadline\":\"$(( $(date +%s) + 7200 ))\",\"makerDapp\":\"0x$MHEX\"}" "$FACT_ABI")
+P=$(body createLot "{\"giveId\":1,\"wantId\":2,\"wantAmount\":\"$(( 50 * N ))\",\"deadline\":\"$(( $(date +%s) + 7200 ))\",\"makerDapp\":\"0x$MHEX\",\"wantStart\":\"$(( 50 * N ))\",\"dropEnd\":\"0\",\"takerId\":\"0\"}" "$FACT_ABI")
 wsend "$MKEYS" "$MHEX" "$FHEX" "$FHEX" true "{\"1\":\"$(( 1000 * N ))\"}" 1 "$P"; sleep 25
 L9=$(lot_id "$B")
 check "L9 lot born funded and OPEN" "0 $(( 1000 * N ))" "$(lot_state "$L9") $(nackl "$L9" "$FHEX")"
@@ -275,7 +286,9 @@ FN=$(native "$FHEX" "$FHEX")
 ext_lot "$LX" close '{}'; sleep 25
 check "L11b expired listing closed (account gone)" 0 "$(active "$LX" "$FHEX")"
 echo "  info: factory native change from the close: $(( $(native "$FHEX" "$FHEX") - FN ))"
-fi   # PART != usdc
+fi   # PART = all
+
+if [ "$PART" = all ] || [ "$PART" = usdc ]; then
 
 # =====================================================================
 # USDC (currency 3, 6 decimals) on both sides: selling NACKL for USDC, and buying NACKL with USDC.
@@ -330,7 +343,7 @@ check "U6 lot holds no USDC" 0 "$(usdc "$U6" "$FHEX")"
 
 say "U7 USDC with createLot (developer wallet) and the USDC minimum"
 B=$(lot_count)
-P=$(body createLot "{\"giveId\":3,\"wantId\":1,\"wantAmount\":\"$(( 1000 * N ))\",\"deadline\":\"$(( $(date +%s) + 7200 ))\",\"makerDapp\":\"0x$MHEX\"}" "$FACT_ABI")
+P=$(body createLot "{\"giveId\":3,\"wantId\":1,\"wantAmount\":\"$(( 1000 * N ))\",\"deadline\":\"$(( $(date +%s) + 7200 ))\",\"makerDapp\":\"0x$MHEX\",\"wantStart\":\"$(( 1000 * N ))\",\"dropEnd\":\"0\",\"takerId\":\"0\"}" "$FACT_ABI")
 wsend "$MKEYS" "$MHEX" "$FHEX" "$FHEX" true "{\"3\":\"$(( 5 * U ))\"}" 1 "$P"; sleep 25
 U7=$(lot_id "$B")
 check "U7a createLot lot born funded with 5 USDC" "0 $(( 5 * U ))" "$(lot_state "$U7") $(usdc "$U7" "$FHEX")"
@@ -341,6 +354,96 @@ check "U7a NACKL holder got 5 USDC" "$(( 5 * U ))" "$(( $(usdc "$THEX" "$THEX") 
 B=$(lot_count)
 open_listing_raw 3 "$(( U / 2 ))" 1 "$(( 100 * N ))" 7200; sleep 15
 check "U7b 0.5 USDC is below the 1 USDC minimum: no listing" "$B" "$(lot_count)"
+
+fi   # PART = all | usdc
+
+if [ "$PART" = all ] || [ "$PART" = offers ]; then
+# =====================================================================
+# Private offers (only the named account may take) and drop offers (the price falls to a floor).
+# docs/PRIVATE_AND_DROP.md
+say "D0 a drop lot made with createLot (100 -> 50 SHELL over 3 minutes); checked in D4 after its drop ends"
+B=$(lot_count)
+P=$(body createLot "{\"giveId\":1,\"wantId\":2,\"wantAmount\":\"$(( 50 * N ))\",\"deadline\":\"$(( $(date +%s) + 7200 ))\",\"makerDapp\":\"0x$MHEX\",\"wantStart\":\"$(( 100 * N ))\",\"dropEnd\":\"$(( $(date +%s) + 180 ))\",\"takerId\":\"0\"}" "$FACT_ABI")
+wsend "$MKEYS" "$MHEX" "$FHEX" "$FHEX" true "{\"1\":\"$(( 1000 * N ))\"}" 1 "$P"; sleep 25
+D4=$(lot_id "$B")
+check "D0 drop lot born funded and OPEN" "0 $(( 1000 * N ))" "$(lot_state "$D4") $(nackl "$D4" "$FHEX")"
+
+say "P1 private listing: 1000 NACKL for 50 SHELL, only the taker's account may buy"
+new_listing_raw 1 "$(( 1000 * N ))" 2 "$(( 50 * N ))" 7200 "$(( 50 * N ))" "" "$THEX"; P1=$LOT
+fund "$P1" true 1000; sleep 25
+check "P1 private listing OPEN with 1000 NACKL" "0 $(( 1000 * N ))" "$(lot_state "$P1") $(nackl "$P1" "$FHEX")"
+check "P1 named buyer recorded" "$THEX" "$(lot_offer "$P1" takerId | python3 -c 'import sys; print(format(int(sys.stdin.read().strip(), 16), "064x"))')"
+
+say "P2 a stranger's payment is refused (bounceable) and refunded (non-bounceable)"
+SS=$(shell "$SHEX" "$SHEX")
+psend "$SKEYS" "$SHEX" "$P1" "$FHEX" true "{\"2\":\"$(( 50 * N ))\"}" 1; sleep 25
+check "P2a stranger (bounceable): lot still OPEN" 0 "$(lot_state "$P1")"
+check "P2a stranger's 50 SHELL came back" "$SS" "$(shell "$SHEX" "$SHEX")"
+psend "$SKEYS" "$SHEX" "$P1" "$FHEX" false "{\"2\":\"$(( 50 * N ))\"}" 1; sleep 25
+check "P2b stranger (non-bounceable): lot still OPEN" 0 "$(lot_state "$P1")"
+check "P2b stranger's 50 SHELL refunded" "$SS" "$(shell "$SHEX" "$SHEX")"
+check "P2 lot still holds its 1000 NACKL and no SHELL" "$(( 1000 * N )) 0" "$(nackl "$P1" "$FHEX") $(shell "$P1" "$FHEX")"
+
+say "P3 the named buyer pays: filled"
+MS=$(shell "$MHEX" "$MHEX"); TK=$(nackl "$THEX" "$THEX")
+psend "$TKEYS" "$THEX" "$P1" "$FHEX" true "{\"2\":\"$(( 50 * N ))\"}" 1; sleep 25
+check "P3 FILLED" 1 "$(lot_state "$P1")"
+check "P3 named buyer got 1000 NACKL" "$(( 1000 * N ))" "$(( $(nackl "$THEX" "$THEX") - TK ))"
+check "P3 seller got 49.5 SHELL" "$(( 495 * N / 10 ))" "$(( $(shell "$MHEX" "$MHEX") - MS ))"
+
+say "P4 private lot made with createLot: the stranger is refused, the named buyer fills it"
+B=$(lot_count)
+P=$(body createLot "{\"giveId\":1,\"wantId\":2,\"wantAmount\":\"$(( 50 * N ))\",\"deadline\":\"$(( $(date +%s) + 7200 ))\",\"makerDapp\":\"0x$MHEX\",\"wantStart\":\"$(( 50 * N ))\",\"dropEnd\":\"0\",\"takerId\":\"0x$THEX\"}" "$FACT_ABI")
+wsend "$MKEYS" "$MHEX" "$FHEX" "$FHEX" true "{\"1\":\"$(( 1000 * N ))\"}" 1 "$P"; sleep 25
+P4=$(lot_id "$B")
+SS=$(shell "$SHEX" "$SHEX")
+psend "$SKEYS" "$SHEX" "$P4" "$FHEX" true "{\"2\":\"$(( 50 * N ))\"}" 1; sleep 25
+check "P4a stranger refused, lot OPEN, SHELL back" "0 $SS" "$(lot_state "$P4") $(shell "$SHEX" "$SHEX")"
+TK=$(nackl "$THEX" "$THEX")
+psend "$TKEYS" "$THEX" "$P4" "$FHEX" true "{\"2\":\"$(( 50 * N ))\"}" 1; sleep 25
+check "P4b named buyer filled it (+1000 NACKL)" "1 $(( 1000 * N ))" "$(lot_state "$P4") $(( $(nackl "$THEX" "$THEX") - TK ))"
+
+say "D1 drop listing: 1000 NACKL, price falls from 100 to 50 SHELL, ending 25 minutes from now (starts at the deposit)"
+new_listing_raw 1 "$(( 1000 * N ))" 2 "$(( 50 * N ))" 7200 "$(( 100 * N ))" 1500; D1=$LOT
+fund "$D1" true 1000; sleep 25
+PN=$(lot_offer "$D1" priceNow)
+echo "  info: price right after the deposit: $PN"
+check "D1 drop OPEN, price between 95 and 100 SHELL" yes "$([[ "$PN" =~ ^[0-9]+$ ]] && [ "$PN" -le $(( 100 * N )) ] && [ "$PN" -ge $(( 95 * N )) ] && echo yes || echo no)"
+
+say "D2 paying the floor (50 SHELL) while the price is higher is refused"
+TS=$(shell "$THEX" "$THEX")
+psend "$TKEYS" "$THEX" "$D1" "$FHEX" true "{\"2\":\"$(( 50 * N ))\"}" 1; sleep 25
+check "D2 lot still OPEN, taker's 50 SHELL back" "0 $TS" "$(lot_state "$D1") $(shell "$THEX" "$THEX")"
+
+say "D3 later, the price has fallen: paying 100 SHELL fills at the current price and returns the change"
+sleep 240
+P_BEFORE=$(lot_offer "$D1" priceNow); echo "  info: price before paying: $P_BEFORE"
+MS=$(shell "$MHEX" "$MHEX"); TS=$(shell "$THEX" "$THEX"); FS=$(shell "$FHEX" "$FHEX")
+psend "$TKEYS" "$THEX" "$D1" "$FHEX" true "{\"2\":\"$(( 100 * N ))\"}" 1; sleep 25
+FP=$(lot_offer "$D1" fillPrice); echo "  info: fill price: $FP"
+check "D3 FILLED" 1 "$(lot_state "$D1")"
+check "D3 fill price fell below the start and stayed above the floor" yes "$([[ "$FP" =~ ^[0-9]+$ ]] && [ "$FP" -lt $(( 100 * N )) ] && [ "$FP" -gt $(( 50 * N )) ] && [ "$FP" -le "$P_BEFORE" ] && echo yes || echo no)"
+FEE=$(( FP / 100 ))
+check "D3 taker paid exactly the fill price (change returned)" "-$FP" "$(( $(shell "$THEX" "$THEX") - TS ))"
+check "D3 seller got the fill price minus 1%" "$(( FP - FEE ))" "$(( $(shell "$MHEX" "$MHEX") - MS ))"
+check "D3 treasury got 1% of the fill price" "$FEE" "$(( $(shell "$FHEX" "$FHEX") - FS ))"
+check "D3 lot holds no SHELL" 0 "$(shell "$D1" "$FHEX")"
+
+say "D4 after its drop ends, the price stays at the floor (D0's lot)"
+check "D4 price now = floor (50 SHELL)" "$(( 50 * N ))" "$(lot_offer "$D4" priceNow)"
+TK=$(nackl "$THEX" "$THEX"); TS=$(shell "$THEX" "$THEX")
+psend "$TKEYS" "$THEX" "$D4" "$FHEX" true "{\"2\":\"$(( 50 * N ))\"}" 1; sleep 25
+check "D4 floor payment fills it" "1 $(( 1000 * N )) -$(( 50 * N ))" "$(lot_state "$D4") $(( $(nackl "$THEX" "$THEX") - TK )) $(( $(shell "$THEX" "$THEX") - TS ))"
+
+say "D5 refused drop terms create nothing"
+B=$(lot_count)
+open_listing_raw 1 "$(( 1000 * N ))" 2 "$(( 50 * N ))" 7200 "$(( 40 * N ))" 3600; sleep 15
+check "D5a start price below the floor: no listing" "$B" "$(lot_count)"
+open_listing_raw 1 "$(( 1000 * N ))" 2 "$(( 50 * N ))" 3600 "$(( 100 * N ))" 7200; sleep 15
+check "D5b drop ending after the offer's deadline: no listing" "$B" "$(lot_count)"
+open_listing_raw 1 "$(( 1000 * N ))" 2 "$(( 50 * N ))" 7200 "$(( 100 * N ))" 300; sleep 15
+check "D5c drop ending inside the 15-minute deposit window: no listing" "$B" "$(lot_count)"
+fi   # PART = all | offers
 
 say "DONE  PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" = 0 ]

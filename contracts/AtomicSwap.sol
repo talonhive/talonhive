@@ -6,11 +6,18 @@ pragma AbiHeader pubkey;
 interface IListingRegistry {
     function onListingFunded(
         uint64 nonce, address maker, uint32 giveId, uint128 giveAmount,
-        uint32 wantId, uint128 wantAmount, uint64 deadline
+        uint32 wantId, uint128 wantAmount, uint64 deadline,
+        uint128 wantStart, uint64 dropEnd, uint256 takerId
     ) external;
 }
 
-/// AtomicSwap — one immutable, non-custodial lot. FIXED price.
+/// AtomicSwap — one immutable, non-custodial lot. FIXED or DROP price, public or PRIVATE
+/// (docs/PRIVATE_AND_DROP.md).
+///   - Drop: the price falls in a straight line from wantStart (when the lot opens) to wantAmount at dropEnd,
+///     then stays there. A taker pays at least the price at the moment of payment; the rest is change.
+///     Fixed lots have wantStart == wantAmount.
+///   - Private: takerId != 0 is the only account that may take (any workchain-0 address with that id).
+///     Anyone else's payment is refunded like any refused take.
 ///
 /// Invariants (docs/CONTRACT_PLAN.md, docs/LISTING_BY_TRANSFER.md):
 ///   I1 funded from birth, or a listing AWAITING its maker's deposit for at most LISTING_TTL with
@@ -80,6 +87,11 @@ contract AtomicSwap {
     address _treasury;  uint256 _treasuryDapp;
     uint64  _closeDelay;
     uint64  _fundBy;    // listings only: deposit deadline (0 = funded from birth)
+    uint128 _wantStart; // drop: price when the lot opens (== _wantAmount for a fixed price)
+    uint64  _dropEnd;   // drop: when the price reaches _wantAmount
+    uint256 _takerId;   // private: the only account id that may take (0 = anyone)
+    uint64  _startAt;   // when the lot opened (born funded, or the maker's deposit); the drop starts here
+    uint128 _fillPrice; // the price actually paid (set at fill)
 
     // Lifecycle.
     uint8   _state;
@@ -107,14 +119,17 @@ contract AtomicSwap {
         uint32 wantId, uint128 wantAmount,
         uint64 deadline, uint16 feeBps,
         address treasury, uint256 treasuryDapp,
-        uint64 closeDelay, uint64 fundBy
+        uint64 closeDelay, uint64 fundBy,
+        uint128 wantStart, uint64 dropEnd, uint256 takerId
     ) {
         // MUST NOT FAIL in practice: on Acki Nacki a failed constructor leaves the code installed and
         // uninitialised, with the maker's coins inside and every call reverting (exit 76). SwapFactory
         // validates every condition below before deploying; these requires are a second line only.
         require(msg.sender == _factory, ERR_NOT_FACTORY);
         require(feeBps <= MAX_FEE_BPS && giveId != wantId && wantAmount > 0 && giveAmount > 0
-                && closeDelay >= MIN_CLOSE_DELAY && (fundBy == 0 || fundBy < deadline), ERR_BAD_PARAMS);
+                && closeDelay >= MIN_CLOSE_DELAY && (fundBy == 0 || fundBy < deadline)
+                && wantStart >= wantAmount && (wantStart == wantAmount || dropEnd <= deadline), ERR_BAD_PARAMS);
+        _wantStart = wantStart; _dropEnd = dropEnd; _takerId = takerId;
         // I1: the factory attached the maker's coins to the deploy message (listings: nothing at stake yet).
         require(fundBy != 0 || uint128(address(this).currencies[giveId]) >= giveAmount, ERR_BAD_PARAMS);
         _giveId = giveId;       _giveAmount = giveAmount;
@@ -126,6 +141,7 @@ contract AtomicSwap {
         if (fundBy == 0) {
             _maker = maker;     _makerDapp = makerDapp;
             _state = OPEN;
+            _startAt = uint64(block.timestamp);
         } else {
             _state = AWAITING;
         }
@@ -228,9 +244,9 @@ contract AtomicSwap {
             to = _maker;
         } else if (give > 0) {
             to = _taker;
-        } else if (_fee > 0 && want == _fee && want != _wantAmount - _fee) {
+        } else if (_fee > 0 && want == _fee && want != _fillPrice - _fee) {
             to = _treasury;
-        } else if (want == _wantAmount - _fee) {
+        } else if (want == _fillPrice - _fee) {
             to = _maker;
         } else {
             to = _taker;
@@ -252,10 +268,11 @@ contract AtomicSwap {
         _maker = msg.sender;
         _makerDapp = _treasuryDapp;
         _state = OPEN;
+        _startAt = uint64(block.timestamp);
         emit Funded(msg.sender);
         // Lets the factory emit LotCreated, so order books index listings like any other lot.
         IListingRegistry(_factory).onListingFunded{value: MSG_VALUE, bounce: false, flag: 1}(
-            _nonce, msg.sender, _giveId, _giveAmount, _wantId, _wantAmount, _deadline);
+            _nonce, msg.sender, _giveId, _giveAmount, _wantId, _wantAmount, _deadline, _wantStart, _dropEnd, _takerId);
     }
 
     function _fundError(uint128 got) private view returns (uint16) {
@@ -297,10 +314,12 @@ contract AtomicSwap {
     function _takeError(uint128 paid) private view returns (uint16) {
         if (_state != OPEN) { return ERR_NOT_OPEN; }
         if (block.timestamp >= _deadline) { return ERR_EXPIRED; }
+        // Private: only the named account may take (internal messages only reach here).
+        if (_takerId != 0 && msg.sender.value != _takerId) { return ERR_NOT_ALLOWED; }
         for ((uint32 id, varuint32 amount) : msg.currencies) {
             if (id != _wantId && amount != 0) { return ERR_UNEXPECTED; }
         }
-        if (paid < _wantAmount) { return ERR_UNDERPAID; }
+        if (paid < _price()) { return ERR_UNDERPAID; }
         // The coins must have ARRIVED as that currency, not just be listed. SHELL sent with flag 16 is
         // listed but converted to gas on arrival (spike 6 C4); paying it out would fail in the action
         // phase, which aborts WITHOUT a bounce (Phase 1 run 3).
@@ -358,9 +377,10 @@ contract AtomicSwap {
         _settledAt = uint64(block.timestamp);
         _taker = taker;
         _takerDapp = takerDapp;
-        _fee = math.muldiv(_wantAmount, _feeBps, 10000);
-        uint128 toMaker = _wantAmount - _fee;
-        uint128 change = paid - _wantAmount;
+        _fillPrice = _price();                            // drop: the price at this moment (<= paid, checked)
+        _fee = math.muldiv(_fillPrice, _feeBps, 10000);
+        uint128 toMaker = _fillPrice - _fee;
+        uint128 change = paid - _fillPrice;
 
         _pay(_maker, _makerDapp, _wantId, toMaker, 0, 0);
         if (_fee > 0) {
@@ -368,6 +388,16 @@ contract AtomicSwap {
         }
         _pay(_taker, _takerDapp, _giveId, _giveAmount, _wantId, change);  // coins + change together
         emit Filled(taker, paid, _fee);
+    }
+
+    /// Price now: falls in a straight line from _wantStart at _startAt to _wantAmount at _dropEnd, then flat.
+    /// Never below _wantAmount, never above _wantStart.
+    function _price() private view returns (uint128) {
+        if (_wantStart <= _wantAmount || _dropEnd <= _startAt || block.timestamp >= _dropEnd) { return _wantAmount; }
+        if (block.timestamp <= _startAt) { return _wantStart; }
+        uint128 elapsed = uint128(block.timestamp - _startAt);
+        uint128 span = uint128(_dropEnd - _startAt);
+        return _wantStart - math.muldiv(_wantStart - _wantAmount, elapsed, span);
     }
 
     function _book(address owner, uint32 id, uint128 amount) private {
@@ -455,5 +485,12 @@ contract AtomicSwap {
     /// Listings: deposit deadline (0 = funded from birth). state AWAITING (3) until the deposit arrives.
     function getFundBy() external view returns (uint64 fundBy) {
         return _fundBy;
+    }
+
+    /// Drop and private terms, and the price right now (what a taker must pay at least).
+    function getOffer() external view returns (
+        uint128 wantStart, uint64 dropEnd, uint256 takerId, uint64 startAt, uint128 priceNow, uint128 fillPrice
+    ) {
+        return (_wantStart, _dropEnd, _takerId, _startAt, _state == OPEN ? _price() : 0, _fillPrice);
     }
 }

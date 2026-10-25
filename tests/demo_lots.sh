@@ -36,7 +36,7 @@ send() {  # keys walletHex destHex bounce eccJson payload
 }
 lot() {  # giveId giveUnits wantId wantNano
   local dl=$(( $(date +%s) + 6 * 86400 ))
-  local p; p=$(body createLot "{\"giveId\":$1,\"wantId\":$3,\"wantAmount\":\"$4\",\"deadline\":\"$dl\",\"makerDapp\":\"0x$MHEX\"}" "$FACT_ABI")
+  local p; p=$(body createLot "{\"giveId\":$1,\"wantId\":$3,\"wantAmount\":\"$4\",\"deadline\":\"$dl\",\"makerDapp\":\"0x$MHEX\",\"wantStart\":\"$4\",\"dropEnd\":\"0\",\"takerId\":\"0\"}" "$FACT_ABI")
   printf '  lot: give %s of #%s for %s of #%s  ' "$2" "$1" "$4" "$3"
   send "$MKEYS" "$MHEX" "$FHEX" true "{\"$1\":\"$(( $2 * N ))\"}" "$p"
   sleep 12

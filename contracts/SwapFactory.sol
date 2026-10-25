@@ -63,12 +63,14 @@ contract SwapFactory {
 
     event LotCreated(
         uint64 nonce, address lot, address maker, uint256 makerDapp,
-        uint32 giveId, uint128 giveAmount, uint32 wantId, uint128 wantAmount, uint64 deadline
+        uint32 giveId, uint128 giveAmount, uint32 wantId, uint128 wantAmount, uint64 deadline,
+        uint128 wantStart, uint64 dropEnd, uint256 takerId
     );
     /// key: chosen by the page that sent openListing, so it can find its listing's address.
     event ListingOpened(
         uint64 key, uint64 nonce, address lot,
-        uint32 giveId, uint128 giveAmount, uint32 wantId, uint128 wantAmount, uint64 deadline, uint64 fundBy
+        uint32 giveId, uint128 giveAmount, uint32 wantId, uint128 wantAmount, uint64 deadline, uint64 fundBy,
+        uint128 wantStart, uint64 dropEnd, uint256 takerId
     );
     event Refunded(address to, uint16 reason);
 
@@ -111,11 +113,16 @@ contract SwapFactory {
 
     /// Called by the maker's wallet with the give-currency attached (flag 1), and nothing else.
     /// `makerDapp` is the maker wallet's DApp id (contracts can read only their own).
-    function createLot(uint32 giveId, uint32 wantId, uint128 wantAmount, uint64 deadline, uint256 makerDapp) external {
+    /// Fixed price: wantStart = wantAmount (dropEnd ignored). Drop: the price falls from wantStart to wantAmount
+    /// by dropEnd. takerId: the only account id that may take (0 = anyone). docs/PRIVATE_AND_DROP.md
+    function createLot(uint32 giveId, uint32 wantId, uint128 wantAmount, uint64 deadline, uint256 makerDapp,
+                       uint128 wantStart, uint64 dropEnd, uint256 takerId) external {
         // Checks before accepting gas. A refusal of a bounceable message bounces the coins back;
         // a failing NON-bounceable message is accepted and its coins refunded (_refused).
         uint128 give = uint128(msg.currencies[giveId]);
-        if (_refused(_createError(giveId, wantId, wantAmount, deadline, give))) { return; }
+        uint16 err = _createError(giveId, wantId, wantAmount, deadline, give);
+        if (err == 0) { err = _dropError(wantAmount, wantStart, dropEnd, deadline, uint64(block.timestamp)); }
+        if (_refused(err)) { return; }
         tvm.accept();
         _ensureGas();
 
@@ -124,8 +131,9 @@ contract SwapFactory {
         address lot = new AtomicSwap{
             stateInit: _stateInit(_lots), value: LOT_GAS, flag: 1, bounce: false, currencies: ecc
         }(msg.sender, makerDapp, giveId, give, wantId, wantAmount, deadline, _feeBps,
-          address(this), _dapp, _closeDelay, 0);
-        emit LotCreated(_lots, lot, msg.sender, makerDapp, giveId, give, wantId, wantAmount, deadline);
+          address(this), _dapp, _closeDelay, 0, wantStart, dropEnd, takerId);
+        emit LotCreated(_lots, lot, msg.sender, makerDapp, giveId, give, wantId, wantAmount, deadline,
+                        wantStart, dropEnd, takerId);
         _lots++;
     }
 
@@ -133,8 +141,11 @@ contract SwapFactory {
     /// message by the web page (nothing is at stake: the lot holds no coins until the maker's deposit).
     /// All checks run before tvm.accept(), so a refused call costs the DApp nothing.
     function openListing(uint64 key, uint32 giveId, uint128 giveAmount, uint32 wantId, uint128 wantAmount,
-                         uint64 deadline) external {
-        if (_refused(_listingError(giveId, giveAmount, wantId, wantAmount, deadline))) { return; }
+                         uint64 deadline, uint128 wantStart, uint64 dropEnd, uint256 takerId) external {
+        uint16 err = _listingError(giveId, giveAmount, wantId, wantAmount, deadline);
+        // A drop must still be falling when the deposit window closes (the drop starts at the deposit).
+        if (err == 0) { err = _dropError(wantAmount, wantStart, dropEnd, deadline, uint64(block.timestamp) + LISTING_TTL); }
+        if (_refused(err)) { return; }
         tvm.accept();
         _ensureGas();
         if (block.timestamp >= _windowStart + LISTING_WINDOW) {
@@ -146,8 +157,9 @@ contract SwapFactory {
         address lot = new AtomicSwap{
             stateInit: _stateInit(_lots), value: LISTING_GAS, flag: 1, bounce: false
         }(address(0), 0, giveId, giveAmount, wantId, wantAmount, deadline, _feeBps,
-          address(this), _dapp, _closeDelay, fundBy);
-        emit ListingOpened(key, _lots, lot, giveId, giveAmount, wantId, wantAmount, deadline, fundBy);
+          address(this), _dapp, _closeDelay, fundBy, wantStart, dropEnd, takerId);
+        emit ListingOpened(key, _lots, lot, giveId, giveAmount, wantId, wantAmount, deadline, fundBy,
+                           wantStart, dropEnd, takerId);
         _lots++;
     }
 
@@ -168,10 +180,22 @@ contract SwapFactory {
     /// Sent by a listing when its maker's deposit arrives: emit LotCreated so order books index it like any
     /// lot. Only lot `nonce` itself can call this (its address is derived from our code and the nonce).
     function onListingFunded(uint64 nonce, address maker, uint32 giveId, uint128 giveAmount,
-                             uint32 wantId, uint128 wantAmount, uint64 deadline) external {
+                             uint32 wantId, uint128 wantAmount, uint64 deadline,
+                             uint128 wantStart, uint64 dropEnd, uint256 takerId) external {
         require(nonce < _lots && msg.sender.value == tvm.hash(_stateInit(nonce)), ERR_NOT_LOT);
         tvm.accept();
-        emit LotCreated(nonce, msg.sender, maker, _dapp, giveId, giveAmount, wantId, wantAmount, deadline);
+        emit LotCreated(nonce, msg.sender, maker, _dapp, giveId, giveAmount, wantId, wantAmount, deadline,
+                        wantStart, dropEnd, takerId);
+    }
+
+    /// Drop terms: fixed (wantStart == wantAmount) always passes; a drop must end after `notBefore`
+    /// and no later than the offer's deadline. The lot's constructor checks the same (second line).
+    function _dropError(uint128 wantAmount, uint128 wantStart, uint64 dropEnd, uint64 deadline, uint64 notBefore)
+        private pure returns (uint16)
+    {
+        if (wantStart < wantAmount) { return ERR_PRICE; }
+        if (wantStart > wantAmount && (dropEnd <= notBefore || dropEnd > deadline)) { return ERR_DEADLINE; }
+        return 0;
     }
 
     function _createError(uint32 giveId, uint32 wantId, uint128 wantAmount, uint64 deadline, uint128 give)
