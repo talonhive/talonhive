@@ -51,6 +51,9 @@ export const ABI = {
     outputs: [],
   },
   reclaim: { name: "reclaim", inputs: [], outputs: [] },
+  // Lot events, used to tell a filled offer from a cancelled one (only their ids are read).
+  Filled: { name: "Filled", inputs: [{ name: "taker", type: "address" }, { name: "paid", type: "uint128" }, { name: "fee", type: "uint128" }] },
+  Reclaimed: { name: "Reclaimed", inputs: [{ name: "maker", type: "address" }, { name: "by", type: "address" }] },
   // Listing by transfer (docs/LISTING_BY_TRANSFER.md): sent by the page as an unsigned external message.
   openListing: {
     name: "openListing",

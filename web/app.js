@@ -3,7 +3,7 @@
 import {
   NETWORKS, DEFAULT_NETWORK, CURRENCIES, PAIRS, FEE_BPS, MAX_TTL_SECONDS, EVENTS_TO_SCAN, POLL_MS, ABI,
 } from "./config.js";
-import { decodeEvent, encodeCallBody, functionSignature, eventSignature } from "./boc.js";
+import { decodeEvent, encodeCallBody, functionSignature, eventSignature, parseBoc, Slice } from "./boc.js";
 import { openListing } from "./send.js";
 
 const net = NETWORKS[DEFAULT_NETWORK];
@@ -86,6 +86,29 @@ async function fetchStatuses(list) {
       l.status = l.held >= l.giveAmount ? (now < l.deadline ? "open" : "expired") : "settled";
     });
   }
+  await fetchOutcomes(list);
+}
+
+// A finished lot was either filled or cancelled; its own Filled / Reclaimed event says which. Final, so cached.
+const outcomes = new Map();   // lot hex -> "filled" | "cancelled"
+async function fetchOutcomes(list) {
+  const todo = list.filter((l) => (l.status === "settled" || l.status === "closed") && !outcomes.has(l.lot)).slice(0, 40);
+  for (let i = 0; i < todo.length; i += 20) {
+    const chunk = todo.slice(i, i + 20);
+    const q = chunk.map((l, k) => `b${k}: account(account_id:"${l.lot}", dapp_id:"${F}") {
+      messages(msg_type:[ExtOut], last:6) { edges { node { body } } } }`).join("\n");
+    let d;
+    try { d = await gql(`{ blockchain { ${q} } }`); } catch { return; }   // labels can wait for the next refresh
+    chunk.forEach((l, k) => {
+      for (const { node } of d.blockchain[`b${k}`]?.messages?.edges || []) {
+        let id;
+        try { id = Number(new Slice(parseBoc(node.body)).uint(32)); } catch { continue; }
+        if (id === IDS.Filled) { outcomes.set(l.lot, "filled"); break; }
+        if (id === IDS.Reclaimed) { outcomes.set(l.lot, "cancelled"); break; }
+      }
+    });
+  }
+  for (const l of list) l.outcome = outcomes.get(l.lot) || "";
 }
 
 // ---------- numbers ----------
@@ -228,7 +251,9 @@ function rowHtml(l, p, best) {
   const quoteAmt = sellsBase ? l.wantAmount : l.giveAmount;
   const statusTag = {
     open: sellsBase ? `<span class="tag buy">Buy</span>` : `<span class="tag sell">Sell</span>`,
-    expired: `<span class="tag exp">Expired</span>`, settled: `<span class="tag done">Filled</span>`, closed: `<span class="tag done">Done</span>`,
+    expired: `<span class="tag exp">Expired</span>`,
+    settled: `<span class="tag done">${{ filled: "Filled", cancelled: "Cancelled" }[l.outcome] || "Done"}</span>`,
+    closed: `<span class="tag done">${{ filled: "Filled", cancelled: "Cancelled" }[l.outcome] || "Done"}</span>`,
   }[l.status] || "";
   const sub = (mineLot(l) ? "Your offer · " : "") + (l.status === "open"
     ? `${sellsBase ? "for" : "wants"} ${amt(quoteAmt, p.quote)} · ${timeLeft(l.deadline)}`
@@ -766,6 +791,8 @@ async function main() {
     reclaim: await abiId(functionSignature(ABI.reclaim)),
     openListing: await abiId(functionSignature(ABI.openListing)),
     ListingOpened: await abiId(eventSignature(ABI.ListingOpened)),
+    Filled: await abiId(eventSignature(ABI.Filled)),
+    Reclaimed: await abiId(eventSignature(ABI.Reclaimed)),
   };
   $("#factory").outerHTML = tapCode(`${F}::${F}`, 8, 6);
   bindCopy(document.querySelector("footer"));

@@ -46,7 +46,7 @@
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 10px; }
   .glass { background: var(--glass); border: 1px solid var(--glass-line); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
 
-  .testbar { position: sticky; top: 0; z-index: 20; text-align: center; font-size: 13px; line-height: 1.4; padding: 8px 16px;
+  .testbar { position: sticky; top: 0; z-index: 20; text-align: center; font-size: 12px; line-height: 1.35; padding: 6px 12px;
     background: #fbbf24; color: #1f1400; }
   .testbar b { font-weight: 800; }
   .danger { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; color: #fecaca; background: rgba(251,113,133,.14);
@@ -115,9 +115,13 @@
   .act small { display: block; font-weight: 500; font-size: 11.5px; color: #5c5c5c; margin-top: 1px; }
 
   /* ---------- trust strip ---------- */
-  .trust { margin-top: 16px; border-radius: var(--r-lg); padding: 14px 16px; display: grid; gap: 10px; }
-  .trust div { display: flex; gap: 12px; align-items: flex-start; font-size: 13.5px; color: var(--ink-2); }
-  .trust svg { flex: none; width: 18px; height: 18px; margin-top: 2px; color: var(--up); }
+  .trust { margin-top: 14px; border-radius: var(--r-lg); padding: 0 12px; }
+  .trust summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; gap: 6px; padding: 11px 0; flex-wrap: wrap; }
+  .trust summary::-webkit-details-marker { display: none; }
+  .trust summary span { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+  .trust svg { flex: none; width: 15px; height: 15px; color: var(--up); }
+  .trust-more { border-top: 1px solid rgba(255,255,255,.06); padding: 4px 2px 10px; }
+  .trust-more p { margin: 8px 0 0; font-size: 13.5px; color: var(--ink-2); }
   .trust b { color: var(--ink); font-weight: 600; }
 
   /* ---------- market list ---------- */
@@ -258,7 +262,7 @@
 <body>
 <div class="bg"></div>
 <div class="testbar" id="testbar" hidden role="note">
-  <b>Test network.</b> Test coins only, worth nothing. <b>Never send real NACKL or SHELL here</b> (for example from the Acki Nacki Wallet app): they would be lost.
+  <b>Test network</b> · test coins only · <b>never send real coins here</b>
 </div>
 
 <header class="top">
@@ -295,14 +299,19 @@
         <button class="act" id="btn-list">List<small>your price</small></button></div>
     </div>
 
-    <div class="trust glass">
-      <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3Z"/><path d="m9 12 2 2 4-4"/></svg>
-        <span><b>Nobody holds your coins.</b> Each offer is its own contract, and it can only pay the seller, the buyer, or a 1% fee.</span></div>
-      <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></svg>
-        <span><b>Instant.</b> Pay an offer and the coins come back in the same transaction.</span></div>
-      <div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
-        <span><b>Refunds are automatic.</b> Too little, too late, or someone was faster? Your payment comes back.</span></div>
-    </div>
+    <!-- Trust points: three compact badges; tap for the full explanation (keeps the market on the first screen). -->
+    <details class="trust glass">
+      <summary aria-label="Why it's safe">
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3Z"/><path d="m9 12 2 2 4-4"/></svg>No one holds coins</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></svg>Instant</span>
+        <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>Auto refunds</span>
+      </summary>
+      <div class="trust-more">
+        <p><b>Nobody holds your coins.</b> Each offer is its own contract, and it can only pay the seller, the buyer, or a 1% fee. Not even TalonHive can move them.</p>
+        <p><b>Instant.</b> Pay an offer and the coins come back in the same transaction.</p>
+        <p><b>Refunds are automatic.</b> Too little, too late, or someone was faster? Your payment comes back.</p>
+      </div>
+    </details>
   </section>
 
   <section>
