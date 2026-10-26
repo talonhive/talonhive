@@ -79,6 +79,11 @@ except Exception: print("x")')
     [ "$S" = 0 ] || continue
     read G W WA <<< "$(echo "$T" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["giveId"], d["wantId"], d["wantAmount"])')"
     [ "$G" = 1 ] && [ "$W" = 2 ] || continue
+    # Drop offers: pay the price right now (getOffer), not the floor; it only falls, extra comes back as change.
+    PN=$(tvm-cli -j run "$FHEX::$L" getOffer '{}' --abi "$SWAP_ABI" 2>/dev/null | python3 -c 'import json,sys
+try: print(json.load(sys.stdin)["priceNow"])
+except Exception: print("")')
+    [[ "$PN" =~ ^[0-9]+$ ]] && [ "$PN" -gt "$WA" ] && WA=$PN
     if [ -z "$BESTP" ] || [ "$WA" -lt "$BESTP" ]; then BEST=$L; BESTP=$WA; fi
   done
   [ -n "$BEST" ] || die "no open NACKL-for-SHELL lot found; run: bash demo_lots.sh"
