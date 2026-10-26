@@ -245,3 +245,9 @@ Factory `a3a5aae8…` (lot code with private and drop terms).
   every lot except the one whose price was mid-drop (P1 "named buyer recorded", D4 "price now = floor"). Decoded
   storage was correct (`decode account data`). Fixed in `f75a35b`: `_price()` has a single exit and `getOffer()`
   computes the price in a statement. `SwapFactory.getVersion()` added so new lot code gets a new factory address.
+
+## Run 12 — private and drop offers with the getter fix, full `run_listing.sh` (2026-10-26, ended 11:03 UTC): 84 passed, 0 failed
+
+New factory `f09f3541…` (version 3). Everything in run 11 passes again, plus the two reads that failed:
+`getOffer()` returns the named buyer (P1) and the floor price after a drop has ended (D4). Drop prices: 99.08 SHELL
+after the deposit, 89.90 just before paying, filled at 89.73 SHELL.

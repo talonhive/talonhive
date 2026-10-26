@@ -36,12 +36,13 @@ export async function postMessage(restBase, { boc, id }, dappHex, accountHex) {
  * Open a listing (SwapFactory.openListing) for a seller whose wallet can only make plain transfers.
  * Returns { key, id } — key finds the listing's ListingOpened event, id is the message hash.
  */
-export async function openListing({ restBase, factoryHex, funcId, abi, giveId, giveAmount, wantId, wantAmount, deadline }) {
+export async function openListing({ restBase, factoryHex, funcId, abi, giveId, giveAmount, wantId, wantAmount, deadline,
+  wantStart = wantAmount, dropEnd = 0n, takerId = 0n }) {   // defaults: fixed price, anyone may take
   const key = BigInt.asUintN(64, BigInt("0x" + [...crypto.getRandomValues(new Uint8Array(8))]
     .map((b) => b.toString(16).padStart(2, "0")).join("")));
   const now = Date.now();
   const msg = await encodeExternalCall(factoryHex, funcId, abi.inputs,
-    { key, giveId, giveAmount, wantId, wantAmount, deadline }, BigInt(now), Math.floor(now / 1000) + 120);
+    { key, giveId, giveAmount, wantId, wantAmount, deadline, wantStart, dropEnd, takerId }, BigInt(now), Math.floor(now / 1000) + 120);
   await postMessage(restBase, msg, factoryHex, factoryHex);   // self-rooted factory: DApp id == account id
   return { key, id: msg.id };
 }

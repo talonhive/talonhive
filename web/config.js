@@ -4,8 +4,8 @@ export const NETWORKS = {
     label: "Shellnet (test network)",
     graphql: "https://shellnet.ackinacki.org/graphql",
     rest: "https://shellnet.ackinacki.org/",   // POST v2/messages: unsigned external messages (web/send.js)
-    // Test factory from tests/run_listing.sh (run 9: listing by transfer). Self-rooted: DApp id == account id.
-    factory: "ae5ef6cba9a1ae056412b5fe78f2993a8023224c64f5cfc9f52efb13e1f1f77c",
+    // Test factory from tests/run_listing.sh (run 12: private and drop offers). Self-rooted: DApp id == account id.
+    factory: "f09f354156923148a63c18d336a9483a7bf3707e95b6364f50fcf7e1d435681f",
     // Test network: coins have no value and do NOT exist on mainnet. The Acki Nacki Wallet app is a
     // mainnet wallet, so the UI must never invite paying test offers from it (real coins would go to an
     // address that doesn't exist on mainnet). Drives the banner, "test" coin labels and pay instructions.
@@ -39,6 +39,7 @@ export const ABI = {
       { name: "giveId", type: "uint32" }, { name: "giveAmount", type: "uint128" },
       { name: "wantId", type: "uint32" }, { name: "wantAmount", type: "uint128" },
       { name: "deadline", type: "uint64" },
+      { name: "wantStart", type: "uint128" }, { name: "dropEnd", type: "uint64" }, { name: "takerId", type: "uint256" },
     ],
   },
   createLot: {
@@ -47,6 +48,7 @@ export const ABI = {
       { name: "giveId", type: "uint32" }, { name: "wantId", type: "uint32" },
       { name: "wantAmount", type: "uint128" }, { name: "deadline", type: "uint64" },
       { name: "makerDapp", type: "uint256" },
+      { name: "wantStart", type: "uint128" }, { name: "dropEnd", type: "uint64" }, { name: "takerId", type: "uint256" },
     ],
     outputs: [],
   },
@@ -61,6 +63,7 @@ export const ABI = {
       { name: "key", type: "uint64" }, { name: "giveId", type: "uint32" },
       { name: "giveAmount", type: "uint128" }, { name: "wantId", type: "uint32" },
       { name: "wantAmount", type: "uint128" }, { name: "deadline", type: "uint64" },
+      { name: "wantStart", type: "uint128" }, { name: "dropEnd", type: "uint64" }, { name: "takerId", type: "uint256" },
     ],
     outputs: [],
   },
@@ -71,6 +74,7 @@ export const ABI = {
       { name: "giveId", type: "uint32" }, { name: "giveAmount", type: "uint128" },
       { name: "wantId", type: "uint32" }, { name: "wantAmount", type: "uint128" },
       { name: "deadline", type: "uint64" }, { name: "fundBy", type: "uint64" },
+      { name: "wantStart", type: "uint128" }, { name: "dropEnd", type: "uint64" }, { name: "takerId", type: "uint256" },
     ],
   },
 };

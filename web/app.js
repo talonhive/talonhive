@@ -55,6 +55,8 @@ async function fetchLots() {
     out.push({
       lot, nonce: e.nonce.toString(), maker: e.maker, giveId: Number(e.giveId), giveAmount: e.giveAmount, wantId: Number(e.wantId),
       wantAmount: e.wantAmount, deadline: Number(e.deadline), createdAt: node.created_at, status: "…", held: 0n,
+      // Drop and private terms (docs/PRIVATE_AND_DROP.md). Fixed price: wantStart == wantAmount.
+      wantStart: e.wantStart, dropEnd: Number(e.dropEnd), takerId: e.takerId ? e.takerId.toString(16).padStart(64, "0") : "",
     });
   }
   return out;
@@ -130,12 +132,32 @@ const dec = (id) => CURRENCIES[id]?.dec ?? 9;
 const amt = (v, id) => `${fmt(v, dec(id))} ${sym(id)}`;
 const pair = () => PAIRS[pairIdx];
 const onPair = (p = pair()) => lots.filter((l) => (l.giveId === p.base && l.wantId === p.quote) || (l.giveId === p.quote && l.wantId === p.base));
+// Drop offers: the same straight line as AtomicSwap._price(). The drop starts when the lot opened; the page
+// knows that only to within seconds (LotCreated's time), so what it asks a buyer to pay is the price a minute
+// earlier (wantToPay): never below the lot's own price, and the lot returns any extra as change.
+const isDrop = (l) => l.wantStart > l.wantAmount;
+function wantNow(l, now = Date.now() / 1000) {
+  if (!isDrop(l) || l.dropEnd <= l.createdAt || now >= l.dropEnd) return l.wantAmount;
+  if (now <= l.createdAt) return l.wantStart;
+  return l.wantStart - ((l.wantStart - l.wantAmount) * BigInt(Math.floor(now - l.createdAt))) / BigInt(l.dropEnd - l.createdAt);
+}
+const wantToPay = (l) => wantNow(l, Date.now() / 1000 - 60);
 function priceOf(l, p = pair()) {
   const b = 10n ** BigInt(dec(p.base));
-  return l.giveId === p.base ? (l.wantAmount * b) / l.giveAmount : (l.giveAmount * b) / l.wantAmount;
+  const want = l.status === "open" ? wantNow(l) : l.wantAmount;
+  return l.giveId === p.base ? (want * b) / l.giveAmount : (l.giveAmount * b) / want;
 }
-const asksOf = (p = pair()) => onPair(p).filter((l) => l.status === "open" && l.giveId === p.base).sort((a, b) => (priceOf(a, p) < priceOf(b, p) ? -1 : 1));
-const bidsOf = (p = pair()) => onPair(p).filter((l) => l.status === "open" && l.giveId === p.quote).sort((a, b) => (priceOf(a, p) > priceOf(b, p) ? -1 : 1));
+// Private offers (takerId) stay out of the public market: shown to their seller, their named buyer (when the
+// optional wallet address in My offers matches) and anyone who opened the offer's share link (?offer=<lot>).
+const linkedLot = (new URLSearchParams(location.search).get("offer") || "").toLowerCase().replace(/^0:/, "");
+const visible = (l) => !l.takerId || mineLot(l) || l.takerId === myAccount() || l.lot === linkedLot;
+const asksOf = (p = pair()) => onPair(p).filter((l) => l.status === "open" && l.giveId === p.base && visible(l)).sort((a, b) => (priceOf(a, p) < priceOf(b, p) ? -1 : 1));
+const bidsOf = (p = pair()) => onPair(p).filter((l) => l.status === "open" && l.giveId === p.quote && visible(l)).sort((a, b) => (priceOf(a, p) > priceOf(b, p) ? -1 : 1));
+/** Account id (hex64) from "dapp::account", "0:hex" or bare hex; "" if it isn't one. */
+function accountOf(str) {
+  const m = String(str || "").trim().toLowerCase().match(/^(?:[0-9a-f]{64}::|0:)?([0-9a-f]{64})$/);
+  return m ? m[1] : "";
+}
 function timeLeft(deadline) {
   const s = Math.floor(deadline - Date.now() / 1000);
   if (s <= 0) return "expired";
@@ -230,7 +252,7 @@ function renderRows() {
   let list;
   if (tab === "asks") list = asksOf(p);
   else if (tab === "bids") list = bidsOf(p);
-  else list = [...onPair(p)].sort((a, b) => b.createdAt - a.createdAt).slice(0, 20);
+  else list = onPair(p).filter(visible).sort((a, b) => b.createdAt - a.createdAt).slice(0, 20);
   if (!list.length) {
     const msg = {
       asks: [`No ${sym(p.base)} for sale right now`, `List yours and set the price.`, "List an offer"],
@@ -247,15 +269,18 @@ function renderRows() {
 
 function rowHtml(l, p, best) {
   const sellsBase = l.giveId === p.base;
-  const baseAmt = sellsBase ? l.giveAmount : l.wantAmount;
-  const quoteAmt = sellsBase ? l.wantAmount : l.giveAmount;
+  const want = l.status === "open" ? wantNow(l) : l.wantAmount;
+  const baseAmt = sellsBase ? l.giveAmount : want;
+  const quoteAmt = sellsBase ? want : l.giveAmount;
   const statusTag = {
     open: sellsBase ? `<span class="tag buy">Buy</span>` : `<span class="tag sell">Sell</span>`,
     expired: `<span class="tag exp">Expired</span>`,
     settled: `<span class="tag done">${{ filled: "Filled", cancelled: "Cancelled" }[l.outcome] || "Done"}</span>`,
     closed: `<span class="tag done">${{ filled: "Filled", cancelled: "Cancelled" }[l.outcome] || "Done"}</span>`,
   }[l.status] || "";
-  const sub = (mineLot(l) ? "Your offer · " : "") + (l.status === "open"
+  const sub = (mineLot(l) ? "Your offer · " : "") + (l.takerId ? "Private · " : "")
+    + (isDrop(l) && l.status === "open" ? (Date.now() / 1000 < l.dropEnd ? "Dropping · " : "At its lowest · ") : "")
+    + (l.status === "open"
     ? `${sellsBase ? "for" : "wants"} ${amt(quoteAmt, p.quote)} · ${timeLeft(l.deadline)}`
     : `${amt(quoteAmt, p.quote)} · ${ago(l.createdAt)}`);
   return `<li class="row" data-lot="${l.lot}" tabindex="0" role="button" aria-label="${sellsBase ? "Buy" : "Sell"} ${fmt(baseAmt, dec(p.base))} ${sym(p.base)}">
@@ -369,9 +394,10 @@ function viewTake(lotHex) {
       view.title = l.giveId === p.base ? `Buy ${amt(l.giveAmount, l.giveId)}` : `Sell ${amt(l.wantAmount, l.wantId)}`;
       return `
         <div class="sum">
-          <div class="sum-row"><span>${coin(l.wantId)}You pay</span><b>${amt(l.wantAmount, l.wantId)}</b></div>
+          <div class="sum-row"><span>${coin(l.wantId)}You pay</span><b id="take-pay">${amt(l.status === "open" ? wantToPay(l) : l.wantAmount, l.wantId)}</b></div>
           <div class="sum-row"><span>${coin(l.giveId)}You get</span><b>${amt(l.giveAmount, l.giveId)}</b></div>
           <div class="sum-row"><span>Price</span><b style="font-size:14px">${fmt(priceOf(l, p), dec(p.quote), 6)} ${sym(p.quote)} per ${sym(p.base)}</b></div>
+          ${isDrop(l) ? `<div class="sum-row"><span>Drop offer</span><b style="font-size:13.5px;text-align:right">Started at ${amt(l.wantStart, l.wantId)}, falls to ${amt(l.wantAmount, l.wantId)} by ${new Date(l.dropEnd * 1000).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}</b></div>` : ""}
           <div class="sum-row"><span>Offered by</span><b style="font-size:14px">${person(l.maker, mineLot(l))}</b></div>
         </div>
         <div id="take-live"></div>
@@ -395,23 +421,33 @@ function viewTake(lotHex) {
       const addr = `0:${l.lot}`;
       if (l.status === "open") {
         watchedOpen = true;
-        if (box.dataset.state === "open") { $(".live span", box).textContent = `Waiting for your payment · ${timeLeft(l.deadline)}`; return; }
+        if (box.dataset.state === "open") {
+          $(".live span", box).textContent = `Waiting for your payment · ${timeLeft(l.deadline)}`;
+          if (isDrop(l)) {   // the price falls: keep the amount (and what Copy copies) current
+            const pay = fmt(wantToPay(l), dec(l.wantId), 9);
+            $("#pay-amt", box).textContent = pay; $("#pay-copy", box).dataset.copy = pay.replace(/,/g, "");
+            const top = $("#take-pay", r); if (top) top.textContent = amt(wantToPay(l), l.wantId);
+          }
+          return;
+        }
         box.dataset.state = "open";
         box.innerHTML = `
+          ${l.takerId ? `<div class="safe" style="margin-top:0;margin-bottom:12px">${ICON.shield}<span><b>Private offer.</b> Only the wallet ending <b>…${esc(l.takerId.slice(-8))}</b> can buy it. A payment from any other wallet comes back automatically.</span></div>` : ""}
           ${TEST ? `<div class="danger">${ICON.shield}<span><b>Test offer: test coins only.</b> Don't pay it from the Acki Nacki Wallet app or any real wallet. That would send <b>real</b> ${sym(l.wantId)} to an address that doesn't exist on mainnet, and it could be lost.</span></div>` : ""}
           <div class="pay"${TEST ? ' style="margin-top:12px"' : ""}>
-            <div class="k">Send exactly</div>
-            <div class="amount">${fmt(l.wantAmount, dec(l.wantId), 9)} <small>${TEST ? "test " : ""}${sym(l.wantId)}</small></div>
+            <div class="k">${isDrop(l) ? "Send at least" : "Send exactly"}</div>
+            <div class="amount"><span id="pay-amt">${fmt(wantToPay(l), dec(l.wantId), 9)}</span> <small>${TEST ? "test " : ""}${sym(l.wantId)}</small></div>
             <div class="k" style="margin-bottom:6px">to this offer</div>
             <div class="addr">${tapCode(addr, 12, 8)}<button class="btn dark" data-copy="${addr}">Copy</button></div>
-            <div class="pay-tools"><button class="btn light" style="border:1px solid #dfe5ef" data-copy="${fmt(l.wantAmount, dec(l.wantId), 9).replace(/,/g, "")}">Copy amount</button>${TEST ? "" : `<button class="btn light" style="border:1px solid #dfe5ef" id="qr-toggle">Show QR</button>`}</div>
+            <div class="pay-tools"><button class="btn light" style="border:1px solid #dfe5ef" id="pay-copy" data-copy="${fmt(wantToPay(l), dec(l.wantId), 9).replace(/,/g, "")}">Copy amount</button>${TEST ? "" : `<button class="btn light" style="border:1px solid #dfe5ef" id="qr-toggle">Show QR</button>`}</div>
+            ${isDrop(l) ? `<p style="margin:10px 0 0;font-size:12.5px;color:#5c5c5c">The price keeps falling. You pay the price at the moment your payment lands; anything extra comes back with your ${sym(l.giveId)}.</p>` : ""}
             <div id="qr"></div>
           </div>
           <ol class="steps">
             ${TEST
-              ? `<li><span>From a <b>Shellnet test wallet</b> (developers: tvm-cli), send <b>${fmt(l.wantAmount, dec(l.wantId))} test ${sym(l.wantId)}</b> to the address above, as a plain transfer.</span></li>
+              ? `<li><span>From a <b>Shellnet test wallet</b> (developers: tvm-cli), send ${isDrop(l) ? "the amount above" : `<b>${fmt(l.wantAmount, dec(l.wantId))} test ${sym(l.wantId)}</b>`} to the address above, as a plain transfer.</span></li>
                  <li><span>The test wallet receives <b>${fmt(l.giveAmount, dec(l.giveId))} test ${sym(l.giveId)}</b> within seconds.</span></li>`
-              : `<li><span>Open your <b>Acki Nacki Wallet</b> and send <b>${amt(l.wantAmount, l.wantId)}</b> to the address above, as a normal transfer.</span></li>
+              : `<li><span>Open your <b>Acki Nacki Wallet</b> and send ${isDrop(l) ? "the amount above" : `<b>${amt(l.wantAmount, l.wantId)}</b>`} to the address above, as a normal transfer.</span></li>
                  <li><span>Your <b>${amt(l.giveAmount, l.giveId)}</b> arrives in the same wallet within seconds.</span></li>`}
           </ol>
           ${l.wantId === 2 ? `<div class="safe">${ICON.shield}<span>Send SHELL <b>as SHELL</b>. Don't convert it to gas first: converted SHELL can't be refunded.</span></div>` : ""}
@@ -448,44 +484,65 @@ function viewTake(lotHex) {
 function viewList(pre = {}) {
   const s = {
     side: pre.side || "sell", quote: pair().quote, amount: "", price: "", hours: 24,
+    kind: "fixed", start: "", dropHours: 6,     // drop offers (selling only): start price, how long it falls
+    who: "anyone", buyer: "",                   // private offers: the buyer's wallet address
   };
+  const chips = (attr, cur, list) => list.map(([v, t]) => `<button data-${attr}="${v}" aria-pressed="${cur === v}">${t}</button>`).join("");
   const view = {
     title: "Create an offer",
-    html: () => `
+    html: () => {
+      const drop = s.side === "sell" && s.kind === "drop";
+      return `
       <div class="toggle" role="group" aria-label="Side">
         <button data-side="sell" aria-pressed="${s.side === "sell"}">Sell NACKL</button>
         <button data-side="buy" aria-pressed="${s.side === "buy"}">Buy NACKL</button>
       </div>
       <div class="field"><span>Paid in</span><div class="chips" id="q-chips">${PAIRS.map((p) => `<button data-q="${p.quote}" aria-pressed="${s.quote === p.quote}">${sym(p.quote)}</button>`).join("")}</div></div>
       <label class="field"><span>Amount of NACKL</span><div class="input"><input id="f-amount" inputmode="decimal" placeholder="1,000" value="${esc(s.amount)}" autocomplete="off"><em>NACKL</em></div></label>
-      <label class="field"><span>Price per NACKL <button type="button" id="f-best"></button></span><div class="input"><input id="f-price" inputmode="decimal" placeholder="0.005" value="${esc(s.price)}" autocomplete="off"><em id="f-qsym">${sym(s.quote)}</em></div></label>
-      <div class="field"><span>Offer stays open for</span><div class="chips" id="h-chips">${[[1, "1 hour"], [24, "1 day"], [72, "3 days"], [167, "7 days"]].map(([h, t]) => `<button data-h="${h}" aria-pressed="${s.hours === h}">${t}</button>`).join("")}</div></div>
+      ${s.side === "sell" ? `<div class="field"><span>Price</span><div class="chips">${chips("kind", s.kind, [["fixed", "Fixed"], ["drop", "Drop: starts high, falls"]])}</div></div>` : ""}
+      ${drop ? `<label class="field"><span>Start price per NACKL</span><div class="input"><input id="f-start" inputmode="decimal" placeholder="0.01" value="${esc(s.start)}" autocomplete="off"><em>${sym(s.quote)}</em></div></label>` : ""}
+      <label class="field"><span>${drop ? "Lowest price per NACKL" : "Price per NACKL"} <button type="button" id="f-best"></button></span><div class="input"><input id="f-price" inputmode="decimal" placeholder="0.005" value="${esc(s.price)}" autocomplete="off"><em>${sym(s.quote)}</em></div></label>
+      ${drop ? `<div class="field"><span>Price falls to the lowest over</span><div class="chips">${chips("dh", s.dropHours, [[1, "1 hour"], [6, "6 hours"], [24, "1 day"], [72, "3 days"]])}</div></div>` : ""}
+      <div class="field"><span>Offer stays open for</span><div class="chips" id="h-chips">${chips("h", s.hours, [[1, "1 hour"], [24, "1 day"], [72, "3 days"], [167, "7 days"]])}</div></div>
+      <div class="field"><span>Who can ${s.side === "sell" ? "buy" : "sell"}</span><div class="chips">${chips("who", s.who, [["anyone", "Anyone"], ["one", "One person"]])}</div></div>
+      ${s.who === "one" ? `<label class="field"><span>Their wallet address</span><div class="input"><input class="small" id="f-buyer" placeholder="dapp_id::account_id" value="${esc(s.buyer)}" autocomplete="off" spellcheck="false"></div></label>` : ""}
       <div class="quote" id="f-quote"></div>
       <p class="err" id="f-err"></p>
       <button class="btn light block" id="f-go">Continue</button>
-      <p class="note">Next, this page opens your offer and shows where to send your coins, as a normal transfer from your wallet. They go straight into the offer's own contract, never to us.</p>`,
+      <p class="note">Next, this page opens your offer and shows where to send your coins, as a normal transfer from your wallet. They go straight into the offer's own contract, never to us.</p>`;
+    },
     bind: (r) => {
-      const recalc = () => {
+      const read = () => {
         s.amount = $("#f-amount", r).value; s.price = $("#f-price", r).value;
+        if ($("#f-start", r)) s.start = $("#f-start", r).value;
+        if ($("#f-buyer", r)) s.buyer = $("#f-buyer", r).value;
+      };
+      const redraw = () => { read(); r.innerHTML = view.html(); view.bind(r); };   // the fields depend on the toggles
+      const recalc = () => {
+        read();
         const p = PAIRS.find((x) => x.quote === s.quote);
         const best = s.side === "sell" ? asksOf(p)[0] : bidsOf(p)[0];
         const bestBtn = $("#f-best", r);
         bestBtn.textContent = best ? `Market: ${fmt(priceOf(best, p), dec(p.quote), 6)}` : "";
         bestBtn.onclick = () => { $("#f-price", r).value = fmt(priceOf(best, p), dec(p.quote), 9).replace(/,/g, ""); recalc(); };
-        $("#f-qsym", r).textContent = sym(s.quote);
         const q = computeOffer(s);
+        const drop = q.ok && q.wantStart > q.wantAmount;
         $("#f-quote", r).innerHTML = q.ok ? `
           <div class="sum-row"><span>${coin(q.giveId)}You put in</span><b>${amt(q.giveAmount, q.giveId)}</b></div>
-          <div class="sum-row"><span>${coin(q.wantId)}You receive</span><b>${amt(q.wantAmount - q.fee, q.wantId)}</b></div>
-          <div class="sum-row"><span>Fee (${Number(FEE_BPS) / 100}%)</span><b style="font-size:14px">${amt(q.fee, q.wantId)}</b></div>`
+          <div class="sum-row"><span>${coin(q.wantId)}You receive</span><b>${drop
+            ? `${amt(q.wantStart - (q.wantStart * FEE_BPS) / 10000n, q.wantId)} falling to ${amt(q.wantAmount - q.fee, q.wantId)}`
+            : amt(q.wantAmount - q.fee, q.wantId)}</b></div>
+          <div class="sum-row"><span>Fee (${Number(FEE_BPS) / 100}%)</span><b style="font-size:14px">${drop ? "1% of the price paid" : amt(q.fee, q.wantId)}</b></div>`
           : `<div class="sum-row"><span>Enter an amount and a price to see what you'll receive.</span></div>`;
         $("#f-err", r).textContent = q.ok ? "" : (s.amount && s.price ? q.error : "");
         $("#f-go", r).disabled = !q.ok;
       };
-      $$("[data-side]", r).forEach((b) => b.addEventListener("click", () => { s.side = b.dataset.side; $$("[data-side]", r).forEach((x) => x.setAttribute("aria-pressed", x === b)); recalc(); }));
-      $$("[data-q]", r).forEach((b) => b.addEventListener("click", () => { s.quote = Number(b.dataset.q); $$("[data-q]", r).forEach((x) => x.setAttribute("aria-pressed", x === b)); recalc(); }));
-      $$("[data-h]", r).forEach((b) => b.addEventListener("click", () => { s.hours = Number(b.dataset.h); $$("[data-h]", r).forEach((x) => x.setAttribute("aria-pressed", x === b)); recalc(); }));
-      ["#f-amount", "#f-price"].forEach((id) => $(id, r).addEventListener("input", recalc));
+      const pick = (attr, key, num) => $$(`[data-${attr}]`, r).forEach((b) => b.addEventListener("click", () => {
+        s[key] = num ? Number(b.dataset[attr]) : b.dataset[attr]; redraw();
+      }));
+      pick("side", "side"); pick("q", "quote", true); pick("h", "hours", true);
+      pick("kind", "kind"); pick("dh", "dropHours", true); pick("who", "who");
+      ["#f-amount", "#f-price", "#f-start", "#f-buyer"].forEach((id) => $(id, r)?.addEventListener("input", recalc));
       $("#f-go", r).addEventListener("click", () => {
         const q = computeOffer(s);
         if (!q.ok) { $("#f-err", r).textContent = q.error; return; }
@@ -509,13 +566,36 @@ function computeOffer(s) {
     if (giveAmount < CURRENCIES[giveId].minGive) throw new Error(`The smallest offer is ${amt(CURRENCIES[giveId].minGive, giveId)} (you'd put in ${amt(giveAmount, giveId)}).`);
     if (wantAmount <= 0n) throw new Error("That price is too small");
     if (!(s.hours >= 1 && s.hours * 3600 <= MAX_TTL_SECONDS)) throw new Error("Pick how long the offer stays open");
-    return { ok: true, giveId, giveAmount, wantId, wantAmount, fee: (wantAmount * FEE_BPS) / 10000n, hours: s.hours };
+    // Drop (selling only): the start price must be above the lowest, and the drop must end before the offer does.
+    let wantStart = wantAmount, dropHours = 0;
+    if (s.side === "sell" && s.kind === "drop") {
+      wantStart = (baseAmt * parseUnits(s.start, dec(p.quote))) / 10n ** BigInt(dec(p.base));
+      if (wantStart <= wantAmount) throw new Error("The start price must be higher than the lowest price");
+      if (!(s.dropHours < s.hours)) throw new Error("The price must reach its lowest before the offer closes: pick a longer open time or a shorter drop");
+      dropHours = s.dropHours;
+    }
+    // Private: only this account may take the offer.
+    let takerId = "";
+    if (s.who === "one") {
+      takerId = accountOf(s.buyer);
+      if (!takerId) throw new Error("Add their wallet address (dapp_id::account_id)");
+    }
+    return { ok: true, giveId, giveAmount, wantId, wantAmount, fee: (wantAmount * FEE_BPS) / 10000n, hours: s.hours,
+      wantStart, dropHours, takerId };
   } catch (e) { return { ok: false, error: e.message }; }
 }
 
 // Listing by transfer (docs/LISTING_BY_TRANSFER.md): the page opens the offer itself (unsigned external message,
 // no wallet), then the seller funds it with a plain transfer, which is all the Acki Nacki Wallet app can send.
 const LISTING_TTL = 15 * 60;   // SwapFactory.LISTING_TTL: time to send the deposit
+// Drop and private terms for createLot / openListing (docs/PRIVATE_AND_DROP.md). The drop's end is fixed when
+// the offer is sent; the lot's price starts falling when it opens. Fixed and public: wantStart = wantAmount, 0, 0.
+const extra = (q) => ({
+  wantStart: q.wantStart,
+  dropEnd: q.dropHours ? BigInt(Math.floor(Date.now() / 1000) + q.dropHours * 3600) : 0n,
+  takerId: q.takerId ? BigInt("0x" + q.takerId) : 0n,
+});
+const shareLink = (lot) => `${location.origin}${location.pathname}?offer=${lot}`;
 function viewOpenListing(q) {
   // The offer must outlive the 15-minute deposit window; keep the chosen window, minus a little slack.
   const deadline = BigInt(Math.floor(Date.now() / 1000) + q.hours * 3600 - 120);
@@ -528,7 +608,11 @@ function viewOpenListing(q) {
     html: () => `
       <div class="sum">
         <div class="sum-row"><span>${coin(q.giveId)}You put in</span><b>${amt(q.giveAmount, q.giveId)}</b></div>
-        <div class="sum-row"><span>${coin(q.wantId)}You receive</span><b>${amt(q.wantAmount - q.fee, q.wantId)}</b></div>
+        <div class="sum-row"><span>${coin(q.wantId)}You receive</span><b>${q.wantStart > q.wantAmount
+          ? `${amt(q.wantStart - (q.wantStart * FEE_BPS) / 10000n, q.wantId)} falling to ${amt(q.wantAmount - q.fee, q.wantId)}`
+          : amt(q.wantAmount - q.fee, q.wantId)}</b></div>
+        ${q.wantStart > q.wantAmount ? `<div class="sum-row"><span>Drop</span><b style="font-size:14px">Falls to its lowest over ${q.dropHours} h, from when your coins arrive</b></div>` : ""}
+        ${q.takerId ? `<div class="sum-row"><span>Private</span><b style="font-size:14px">Only the wallet ending …${esc(q.takerId.slice(-8))} can ${q.giveId === 1 ? "buy" : "sell"}</b></div>` : ""}
         <div class="sum-row"><span>Open until</span><b style="font-size:14px">${new Date(Number(deadline) * 1000).toLocaleString()}</b></div>
       </div>
       <div id="ol-box"></div>
@@ -606,7 +690,10 @@ function viewOpenListing(q) {
         box.innerHTML = `<div class="done-card"><div class="check">${ICON.check}</div><h4>Your offer is live</h4>
           <p>Offer #${esc(l.nonce)} is in the market. You'll be paid automatically when someone buys.<br>
           To cancel, send any small amount (for example 1 ${sym(q.giveId)}) to it from the same wallet: everything comes back.</p></div>
+          ${q.takerId ? `<div class="field" style="margin-top:14px"><span>Send this link to your buyer (the offer isn't listed publicly)</span>
+            <div class="codebox"><code class="cmd">${esc(shareLink(l.lot))}</code><button class="btn ghost" data-copy="${esc(shareLink(l.lot))}">Copy</button></div></div>` : ""}
           <button class="btn light block" style="margin-top:14px" id="see-offer">See my offer</button>`;
+        bindCopy(box);
         $("#see-offer", box).addEventListener("click", () => push(viewTake(l.lot)));
         return;
       }
@@ -623,7 +710,7 @@ function viewOpenListing(q) {
     try {
       const { key } = await openListing({
         restBase: net.rest, factoryHex: F, funcId: IDS.openListing, abi: ABI.openListing,
-        giveId: q.giveId, giveAmount: q.giveAmount, wantId: q.wantId, wantAmount: q.wantAmount, deadline,
+        giveId: q.giveId, giveAmount: q.giveAmount, wantId: q.wantId, wantAmount: q.wantAmount, deadline, ...extra(q),
       });
       rememberPrepared(terms);
       phase = "waiting"; sentAt = Date.now(); refreshSheet();
@@ -667,7 +754,7 @@ function viewListResult(q) {
   // by account id whatever DApp id they name (Phase 1 T8, spike 6 C6), exactly as pay-to-take buyers are paid.
   // So the seller's DApp field carries our own DApp id.
   const payload = encodeCallBody(IDS.createLot, ABI.createLot.inputs,
-    { giveId: q.giveId, wantId: q.wantId, wantAmount: q.wantAmount, deadline, makerDapp: BigInt("0x" + F) });
+    { giveId: q.giveId, wantId: q.wantId, wantAmount: q.wantAmount, deadline, makerDapp: BigInt("0x" + F), ...extra(q) });
   const args = JSON.stringify({ dest: `0:${F}`, value: "10000000", cc: { [q.giveId]: q.giveAmount.toString() }, bounce: true, flag: 1, payload, dapp_id: `0x${F}` });
   rememberPrepared(termsKey(q.giveId, q.giveAmount, q.wantId, q.wantAmount, Number(deadline)));
   let from = "<your-wallet-address>";
@@ -775,6 +862,11 @@ async function refresh() {
     $("#net").className = "net glass ok"; $("#net span").textContent = "Shellnet · live";
     renderHome();
     refreshSheet();
+    // A share link (?offer=<lot>) opens that offer once, as soon as it is known.
+    if (linkedLot && !refresh.openedLink && lots.some((l) => l.lot === linkedLot)) {
+      refresh.openedLink = true;
+      openSheet(viewTake(linkedLot));
+    }
   } catch (e) {
     $("#net").className = "net glass bad"; $("#net span").textContent = "Offline";
     $("#net").title = e.message;

@@ -37,6 +37,17 @@ for its whole life like every other term. A lot can be fixed or drop, and public
 - ABI change: tools and the website must send the three new fields (fixed and public: `wantStart =
   wantAmount, dropEnd = 0, takerId = 0`).
 
+## Website
+
+- List screen: **Price** Fixed / Drop (selling only: start price, lowest price, how long it falls) and **Who can
+  buy** Anyone / One person (their wallet address). The drop must end before the offer closes.
+- Market: drop offers show their live price ("Dropping" / "At its lowest"). Private offers are not listed
+  publicly: only their seller, their buyer (if their address is saved under My offers) and anyone who opens
+  the offer's share link (`?offer=<lot>`) sees them. After a private offer goes live, the page shows the link.
+- Buy screen: a drop shows "Send at least X", updated as the price falls. X is the price a minute earlier: the
+  page knows when a drop started only to within seconds (LotCreated's time), so this is never below the lot's
+  own price, and the lot returns the extra as change. A private offer names the buyer's wallet (last 8 digits).
+
 ## Tests
 
 `tests/run_listing.sh` (all parts, so everything earlier is re-run on the new code), and `run_listing.sh offers`
