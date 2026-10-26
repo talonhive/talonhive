@@ -283,6 +283,12 @@ contract SwapFactory {
 
     /// Safe for local `tvm-cli run`: no DApp-context instructions (those fail off-chain with
     /// exit code -36 "DApp ID is not set"). Read gas credit from the DappConfig's getDetails.
+    /// Bump whenever AtomicSwap's code changes. The lot code is a deploy parameter, so without this the
+    /// factory's code (and address) stays the same and a test run would reuse a factory holding OLD lot code.
+    function getVersion() external pure returns (uint16 version) {
+        return 3;   // 3: private and drop offers (run 11 fix)
+    }
+
     function getInfo() external view returns (
         uint64 lots, uint16 feeBps, uint256 dapp, uint64 closeDelay,
         uint128 minNackl, uint128 minShell, uint128 minUsdc

@@ -392,12 +392,19 @@ contract AtomicSwap {
 
     /// Price now: falls in a straight line from _wantStart at _startAt to _wantAmount at _dropEnd, then flat.
     /// Never below _wantAmount, never above _wantStart.
-    function _price() private view returns (uint128) {
-        if (_wantStart <= _wantAmount || _dropEnd <= _startAt || block.timestamp >= _dropEnd) { return _wantAmount; }
-        if (block.timestamp <= _startAt) { return _wantStart; }
-        uint128 elapsed = uint128(block.timestamp - _startAt);
-        uint128 span = uint128(_dropEnd - _startAt);
-        return _wantStart - math.muldiv(_wantStart - _wantAmount, elapsed, span);
+    /// One exit only: with early returns, getOffer() failed with exit -8 (type check) in local getter runs on
+    /// every lot whose price took an early exit (Shellnet run 11), though takes on chain were correct.
+    function _price() private view returns (uint128 price) {
+        price = _wantAmount;
+        if (_wantStart > _wantAmount && _dropEnd > _startAt && block.timestamp < _dropEnd) {
+            if (block.timestamp <= _startAt) {
+                price = _wantStart;
+            } else {
+                uint128 elapsed = uint128(block.timestamp - _startAt);
+                uint128 span = uint128(_dropEnd - _startAt);
+                price = _wantStart - math.muldiv(_wantStart - _wantAmount, elapsed, span);
+            }
+        }
     }
 
     function _book(address owner, uint32 id, uint128 amount) private {
@@ -491,6 +498,8 @@ contract AtomicSwap {
     function getOffer() external view returns (
         uint128 wantStart, uint64 dropEnd, uint256 takerId, uint64 startAt, uint128 priceNow, uint128 fillPrice
     ) {
-        return (_wantStart, _dropEnd, _takerId, _startAt, _state == OPEN ? _price() : 0, _fillPrice);
+        uint128 now_ = 0;
+        if (_state == OPEN) { now_ = _price(); }
+        return (_wantStart, _dropEnd, _takerId, _startAt, now_, _fillPrice);
     }
 }
