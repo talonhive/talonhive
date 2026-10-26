@@ -24,6 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: node web/test_boc.mjs          # never publish a build whose codec tests fail
+      - run: node web/test_parse.mjs        # nor one that misreads typed amounts
       # Pages lets browsers cache files for 10 minutes. Stamping every file URL with the commit id makes
       # a normal refresh load the new version right after a deploy (the repo itself keeps plain paths).
       - name: cache-bust

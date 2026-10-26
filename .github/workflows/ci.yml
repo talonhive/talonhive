@@ -27,3 +27,4 @@ jobs:
         with:
           node-version: 22
       - run: node web/test_boc.mjs
+      - run: node web/test_parse.mjs

@@ -121,7 +121,11 @@ function fmt(v, dec, maxFrac = 4) {
   return int + (frac ? "." + frac : "");
 }
 function parseUnits(str, dec) {
-  const s = String(str).trim().replace(/,/g, "");
+  // Phone keyboards add spaces ("0. 005") and some use a comma as the decimal point ("0,005"). A single comma
+  // is a decimal point unless it reads as a thousands group ("1,000" or "12,500"); never guess "0,005" = 5.
+  let s = String(str).replace(/\s+/g, "");
+  if (!s.includes(".") && /^\d+,\d+$/.test(s) && !/^[1-9]\d{0,2},\d{3}$/.test(s)) s = s.replace(",", ".");
+  s = s.replace(/,(?=\d{3}(\D|$))/g, "");
   if (!/^\d+(\.\d+)?$/.test(s)) throw new Error("Enter a number");
   const [i, f = ""] = s.split(".");
   if (f.length > dec) throw new Error(`At most ${dec} decimals`);
@@ -498,10 +502,10 @@ function viewList(pre = {}) {
         <button data-side="buy" aria-pressed="${s.side === "buy"}">Buy NACKL</button>
       </div>
       <div class="field"><span>Paid in</span><div class="chips" id="q-chips">${PAIRS.map((p) => `<button data-q="${p.quote}" aria-pressed="${s.quote === p.quote}">${sym(p.quote)}</button>`).join("")}</div></div>
-      <label class="field"><span>Amount of NACKL</span><div class="input"><input id="f-amount" inputmode="decimal" placeholder="1,000" value="${esc(s.amount)}" autocomplete="off"><em>NACKL</em></div></label>
+      <label class="field"><span>Amount of NACKL</span><div class="input"><input id="f-amount" inputmode="decimal" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="1,000" value="${esc(s.amount)}" autocomplete="off"><em>NACKL</em></div></label>
       ${s.side === "sell" ? `<div class="field"><span>Price</span><div class="chips">${chips("kind", s.kind, [["fixed", "Fixed"], ["drop", "Drop: starts high, falls"]])}</div></div>` : ""}
-      ${drop ? `<label class="field"><span>Start price per NACKL</span><div class="input"><input id="f-start" inputmode="decimal" placeholder="0.01" value="${esc(s.start)}" autocomplete="off"><em>${sym(s.quote)}</em></div></label>` : ""}
-      <label class="field"><span>${drop ? "Lowest price per NACKL" : "Price per NACKL"} <button type="button" id="f-best"></button></span><div class="input"><input id="f-price" inputmode="decimal" placeholder="0.005" value="${esc(s.price)}" autocomplete="off"><em>${sym(s.quote)}</em></div></label>
+      ${drop ? `<label class="field"><span>Start price per NACKL</span><div class="input"><input id="f-start" inputmode="decimal" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="0.01" value="${esc(s.start)}" autocomplete="off"><em>${sym(s.quote)}</em></div></label>` : ""}
+      <label class="field"><span>${drop ? "Lowest price per NACKL" : "Price per NACKL"} <button type="button" id="f-best"></button></span><div class="input"><input id="f-price" inputmode="decimal" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="0.005" value="${esc(s.price)}" autocomplete="off"><em>${sym(s.quote)}</em></div></label>
       ${drop ? `<div class="field"><span>Price falls to the lowest over</span><div class="chips">${chips("dh", s.dropHours, [[1, "1 hour"], [6, "6 hours"], [24, "1 day"], [72, "3 days"]])}</div></div>` : ""}
       <div class="field"><span>Offer stays open for</span><div class="chips" id="h-chips">${chips("h", s.hours, [[1, "1 hour"], [24, "1 day"], [72, "3 days"], [167, "7 days"]])}</div></div>
       <div class="field"><span>Who can ${s.side === "sell" ? "buy" : "sell"}</span><div class="chips">${chips("who", s.who, [["anyone", "Anyone"], ["one", "One person"]])}</div></div>
@@ -557,8 +561,10 @@ function viewList(pre = {}) {
 function computeOffer(s) {
   try {
     const p = PAIRS.find((x) => x.quote === s.quote);
-    const baseAmt = parseUnits(s.amount, dec(p.base));
-    const price = parseUnits(s.price, dec(p.quote));
+    // Say which box is wrong.
+    const num = (v, d, what) => { try { return parseUnits(v, d); } catch (e) { throw new Error(`${what}: ${e.message.toLowerCase()}`); } };
+    const baseAmt = num(s.amount, dec(p.base), "Amount");
+    const price = num(s.price, dec(p.quote), s.side === "sell" && s.kind === "drop" ? "Lowest price" : "Price");
     if (baseAmt === 0n) throw new Error("Enter an amount");
     const quoteAmt = (baseAmt * price) / 10n ** BigInt(dec(p.base));
     const [giveId, giveAmount, wantId, wantAmount] = s.side === "sell"
@@ -569,7 +575,7 @@ function computeOffer(s) {
     // Drop (selling only): the start price must be above the lowest, and the drop must end before the offer does.
     let wantStart = wantAmount, dropHours = 0;
     if (s.side === "sell" && s.kind === "drop") {
-      wantStart = (baseAmt * parseUnits(s.start, dec(p.quote))) / 10n ** BigInt(dec(p.base));
+      wantStart = (baseAmt * num(s.start, dec(p.quote), "Start price")) / 10n ** BigInt(dec(p.base));
       if (wantStart <= wantAmount) throw new Error("The start price must be higher than the lowest price");
       if (!(s.dropHours < s.hours)) throw new Error("The price must reach its lowest before the offer closes: pick a longer open time or a shorter drop");
       dropHours = s.dropHours;
