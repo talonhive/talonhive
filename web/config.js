@@ -6,6 +6,12 @@ export const NETWORKS = {
     rest: "https://shellnet.ackinacki.org/",   // POST v2/messages: unsigned external messages (web/send.js)
     // Test factory from tests/run_listing.sh (run 12: private and drop offers). Self-rooted: DApp id == account id.
     factory: "f09f354156923148a63c18d336a9483a7bf3707e95b6364f50fcf7e1d435681f",
+    // Code fingerprints the proof page checks on chain. They are the code hashes of contracts/*.sol at commit
+    // f75a35b compiled with `sold 0.81.0 --tvm-version gosh`; anyone can reproduce them with
+    // `tvm-cli decode stateinit --tvc AtomicSwap.tvc` (code_hash). Change them only with the contracts.
+    lotCodeHash: "5854186a7c298f870f7934f05d25e1f3ad219d6f4e48e8345810fc893a9a45af",
+    factoryCodeHash: "311e647b0e31c0e6face57ef3604632e7178c13f9f7c141dd61f3acf77e4d9f7",
+    sourceCommit: "f75a35b",
     // Test network: coins have no value and do NOT exist on mainnet. The Acki Nacki Wallet app is a
     // mainnet wallet, so the UI must never invite paying test offers from it (real coins would go to an
     // address that doesn't exist on mainnet). Drives the banner, "test" coin labels and pay instructions.

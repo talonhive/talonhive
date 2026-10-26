@@ -251,6 +251,20 @@
   .choice button:hover { background: rgba(255,255,255,.08); }
   .choice b { font-size: 15.5px; } .choice span { color: var(--ink-3); font-size: 13px; grid-column: 1; } .choice svg { grid-row: 1 / 3; grid-column: 2; width: 18px; height: 18px; color: var(--ink-3); }
 
+  /* ---------- proof page ---------- */
+  .proof { list-style: none; padding: 0; margin: 14px 0 0; display: grid; gap: 10px; }
+  .proof li { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; color: var(--ink-2); }
+  .proof li svg { flex: none; width: 18px; height: 18px; margin-top: 1px; }
+  .proof .proof-ok svg { color: var(--up); }
+  .proof .proof-bad { color: #fecaca; } .proof .proof-bad svg { color: var(--down); }
+  .proof a { color: var(--ink); }
+  .proof-h { margin: 18px 0 8px; font-size: 14px; font-weight: 700; }
+  .proof-steps { list-style: none; padding: 0 0 0 14px; margin: 0; border-left: 1px solid rgba(255,255,255,.12); display: grid; gap: 10px; }
+  .proof-steps li { position: relative; font-size: 13.5px; color: var(--ink); }
+  .proof-steps li::before { content: ""; position: absolute; left: -18px; top: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); }
+  .proof-steps li.in::before { background: var(--accent); } .proof-steps li.out::before { background: var(--up); } .proof-steps li.back::before { background: var(--warn); }
+  .proof-steps time { display: block; font-size: 11.5px; color: var(--ink-3); }
+
   footer { max-width: 1120px; margin: 0 auto; padding: 8px 16px 40px; color: var(--ink-3); font-size: 12.5px; }
   footer code { font: 11.5px ui-monospace, SFMono-Regular, Consolas, monospace; word-break: break-all; }
   #toast { position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 20px); opacity: 0; transition: .2s; background: var(--paper); color: var(--paper-ink);

@@ -385,6 +385,103 @@ function viewSellChoice() {
   };
 }
 
+// ---------- proof page ----------
+// Everything here is read from the chain by this page, not claimed by us: what the offer holds, that it runs the
+// published offer code (code hash), that our factory created it, and every message it sent or received.
+async function fetchProof(lotHex) {
+  const d = await gql(`{ blockchain {
+    lot: account(account_id:"${lotHex}", dapp_id:"${F}") {
+      info { acc_type code_hash balance_other { currency value(format:DEC) } }
+      messages(last:50) { edges { node { msg_type created_at src dst bounce bounced value_other { currency value(format:DEC) } } } } }
+    factory: account(account_id:"${F}", dapp_id:"${F}") { info { code_hash } } } }`);
+  const lot = d?.blockchain?.lot, info = lot?.info;
+  const coins = (list) => (list || []).map((x) => ({ id: Number(x.currency), v: BigInt(x.value) })).filter((c) => c.v > 0n);
+  return {
+    exists: info?.acc_type === 1,
+    codeHash: info?.code_hash || "",
+    factoryCodeHash: d?.blockchain?.factory?.info?.code_hash || "",
+    holds: coins(info?.balance_other),
+    messages: (lot?.messages?.edges || []).map(({ node: n }) => ({
+      type: n.msg_type, at: n.created_at, src: n.src || "", dst: n.dst || "", bounced: !!n.bounced, coins: coins(n.value_other),
+    })).sort((a, b) => a.at - b.at),
+  };
+}
+
+/** Plain-words timeline of a lot's messages (internal ones; events and gas-only notices are left out). */
+function proofTimeline(l, msgs) {
+  const me = `0:${l.lot}`, factory = `0:${F}`;
+  const who = (a) => a === factory ? "TalonHive" : (a === l.maker ? "the seller" : nickname(a));
+  const list = (cs) => cs.map((c) => amt(c.v, c.id)).join(" + ");
+  const out = [];
+  for (const m of msgs) {
+    if (m.dst === me && !m.src) { out.push({ at: m.at, text: "No-wallet message (keeper or this page)" }); continue; }
+    if (m.dst === me && m.src === factory && !m.coins.length) { out.push({ at: m.at, text: "Created by the TalonHive Swap factory" }); continue; }
+    if (m.dst === me && m.coins.length) { out.push({ at: m.at, text: `Received ${list(m.coins)} from ${who(m.src)}`, kind: "in" }); continue; }
+    if (m.src === me && m.coins.length) {
+      // Returned exactly what that sender just sent: a refused payment (bounced) or a refund.
+      const back = msgs.some((x) => x.at === m.at && x.dst === me && x.src === m.dst && list(x.coins) === list(m.coins));
+      const text = m.bounced ? `Refused: bounced ${list(m.coins)} back to ${who(m.dst)}`
+        : back ? `Refunded ${list(m.coins)} to ${who(m.dst)}`
+        : m.dst === factory ? `Paid the ${Number(FEE_BPS) / 100}% fee, ${list(m.coins)}, to TalonHive`
+        : `Paid ${list(m.coins)} to ${who(m.dst)}`;
+      out.push({ at: m.at, text, kind: m.bounced || back ? "back" : "out" });
+    }
+  }
+  return out;
+}
+
+function viewProof(lotHex) {
+  let data = null, error = "";
+  const find = () => lots.find((x) => x.lot === lotHex);
+  const check = (ok, yes, no) => `<li class="proof-${ok ? "ok" : "bad"}">${ok ? ICON.check : ICON.shield}<span>${ok ? yes : no}</span></li>`;
+  const view = {
+    title: "Check this offer",
+    html: () => `<p class="note" style="margin:0 0 12px;color:var(--ink-2)">Everything below is read straight from the blockchain by this page. You don't have to trust us.</p><div id="proof-out"><div class="skeleton"></div></div>`,
+    bind: (r) => {
+      fetchProof(lotHex).then((d) => { data = d; view.live(r); }).catch((e) => { error = e.message; view.live(r); });
+    },
+    live: (r) => {
+      const box = $("#proof-out", r);
+      const l = find();
+      if (!box || (!data && !error)) return;
+      if (error) { box.innerHTML = `<p class="err">Couldn't read the chain: ${esc(error)}. Try again in a moment.</p>`; return; }
+      if (!l) { box.innerHTML = `<p class="err">This offer wasn't created by the TalonHive Swap factory this page uses.</p>`; return; }
+      const codeOk = !data.exists || data.codeHash === net.lotCodeHash;
+      const facOk = data.factoryCodeHash === net.factoryCodeHash;
+      const src = `https://github.com/talonhive/talonhive/blob/${net.sourceCommit}/contracts/AtomicSwap.sol`;
+      const steps = proofTimeline(l, data.messages);
+      box.innerHTML = `
+        <div class="sum">
+          <div class="sum-row"><span>Holds right now</span><b>${data.exists ? (data.holds.length ? data.holds.map((c) => amt(c.v, c.id)).join(" + ") : "nothing") : "closed"}</b></div>
+          <div class="sum-row"><span>Terms</span><b style="font-size:13.5px;text-align:right">${amt(l.giveAmount, l.giveId)} for ${isDrop(l)
+            ? `${amt(l.wantStart, l.wantId)} falling to ${amt(l.wantAmount, l.wantId)}` : amt(l.wantAmount, l.wantId)}${l.takerId ? ", one buyer only" : ""}</b></div>
+          <div class="sum-row"><span>Open until</span><b style="font-size:14px">${new Date(l.deadline * 1000).toLocaleString()}</b></div>
+        </div>
+        <ul class="proof">
+          ${check(facOk, "Created by the TalonHive Swap factory, which runs the published factory code.", "The factory's code doesn't match the published code. Don't use this offer.")}
+          ${data.exists ? check(codeOk, `Runs the published offer code (the same fingerprint as <a href="${src}" target="_blank" rel="noopener">the source on GitHub</a>, commit ${esc(net.sourceCommit)}).`,
+            "This offer's code doesn't match the published code. Don't pay it.") : `<li class="proof-ok">${ICON.check}<span>Finished and closed: it holds nothing any more.</span></li>`}
+          <li class="proof-ok">${ICON.check}<span>That code has no admin key and no upgrade: it can only pay the seller, the buyer, or a ${Number(FEE_BPS) / 100}% fee to TalonHive.</span></li>
+        </ul>
+        <h4 class="proof-h">Every transfer, oldest first</h4>
+        ${steps.length ? `<ol class="proof-steps">${steps.map((s) => `<li class="${s.kind || ""}"><time>${new Date(s.at * 1000).toLocaleString([], { dateStyle: "short", timeStyle: "medium" })}</time><span>${esc(s.text)}</span></li>`).join("")}</ol>`
+          : `<p class="note">No transfers yet.</p>`}
+        <details class="more"><summary>Check it with your own tools</summary>
+          <p style="margin:0 0 6px">The offer's code fingerprint (code hash) on chain:</p>
+          <div class="codebox"><code>${esc(data.codeHash || "closed")}</code></div>
+          <p style="margin:0 0 6px">Compile <code>contracts/AtomicSwap.sol</code> at commit ${esc(net.sourceCommit)} with <code>sold 0.81.0 --tvm-version gosh</code>, then <code>tvm-cli decode stateinit --tvc AtomicSwap.tvc</code>: its code_hash is</p>
+          <div class="codebox"><code>${esc(net.lotCodeHash)}</code></div>
+          <p style="margin:0 0 12px">Offer ${tapCode(`${F}::${l.lot}`, 10, 8)}</p>
+        </details>
+        <details class="more"><summary>What this doesn't prove</summary>
+          <p style="margin:0 0 12px">That the code has no bugs. It passed ${TEST ? "every Shellnet test" : "its tests"}, but it hasn't had an independent audit yet. Trades are also public: anyone can read these transfers, as on every blockchain.</p>
+        </details>`;
+      bindCopy(box);
+    },
+  };
+  return view;
+}
+
 function viewTake(lotHex) {
   let watchedOpen = false;
   const find = () => lots.find((x) => x.lot === lotHex);
@@ -409,7 +506,7 @@ function viewTake(lotHex) {
           <dt>Offer</dt><dd>#${esc(l.nonce)}</dd>
           <dt>Expires</dt><dd>${new Date(l.deadline * 1000).toLocaleString()}</dd>
           <dt>Fee</dt><dd>${Number(FEE_BPS) / 100}%, taken from what the offer's creator receives. You pay exactly the price.</dd>
-          <dt>Verified</dt><dd>Created by the TalonHive Swap factory and read straight from the blockchain.</dd>
+          <dt>Verified</dt><dd>Created by the TalonHive Swap factory and read straight from the blockchain. <button type="button" class="btn ghost" id="take-proof" style="margin-top:6px">Check this offer yourself</button></dd>
           <dt>Privacy</dt><dd>Like every Acki Nacki transfer, trades are public on the blockchain. This site shows nicknames, not wallet addresses.</dd>
         </dl>
         <details class="more" style="margin:0 0 12px"><summary>Technical details</summary><dl>
@@ -418,7 +515,7 @@ function viewTake(lotHex) {
           <dt>Factory</dt><dd>${tapCode(F, 10, 8)}</dd>
         </dl></details></details>`;
     },
-    bind: (r) => { view.live(r); },
+    bind: (r) => { $("#take-proof", r)?.addEventListener("click", () => push(viewProof(lotHex))); view.live(r); },
     live: (r) => {
       const l = find(); const box = $("#take-live", r);
       if (!l || !box) return;
@@ -872,6 +969,11 @@ async function refresh() {
     if (linkedLot && !refresh.openedLink && lots.some((l) => l.lot === linkedLot)) {
       refresh.openedLink = true;
       openSheet(viewTake(linkedLot));
+    }
+    const proofLot = (new URLSearchParams(location.search).get("proof") || "").toLowerCase().replace(/^0:/, "");
+    if (proofLot && !refresh.openedProof && lots.some((l) => l.lot === proofLot)) {
+      refresh.openedProof = true;
+      openSheet(viewProof(proofLot));
     }
   } catch (e) {
     $("#net").className = "net glass bad"; $("#net span").textContent = "Offline";
