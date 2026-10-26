@@ -230,3 +230,18 @@ On the deployed site (talonhive.github.io/talonhive): List 1000 NACKL at 0.05 SH
 unsigned external message opened listing #20 (`ListingOpened` 13:45:13, lot `93e79ff2…`), and the page showed
 "Send exactly 1,000 test NACKL". `demo_lots.sh fund` sent it from the test seller wallet as a plain transfer;
 the lot emitted `LotCreated` (13:47:55, maker = the test seller) and the page switched to "Your offer is live".
+
+## Run 11 — private and drop offers, full `run_listing.sh` (2026-10-26, ended 09:20 UTC): 82 passed, 2 failed (getter)
+
+Factory `a3a5aae8…` (lot code with private and drop terms).
+- **All earlier checks pass on the new code** (L1–L11, U1–U7), with fixed and public terms.
+- **Private:** a stranger's 50 SHELL refused (bounceable) and refunded (non-bounceable), the lot kept its 1000 NACKL;
+  the named buyer filled it; the same via `createLot` (P2–P4).
+- **Drop (100 → 50 SHELL):** 99.08 SHELL right after the deposit (D1); paying the 50 SHELL floor early was refused
+  (D2); ~5 minutes later a 100 SHELL payment filled at 89.73 SHELL: taker charged exactly 89.73 (change returned),
+  seller +88.83, treasury +0.897 (1% of the fill price) (D3); after its drop ended, D0's lot filled at the 50 SHELL
+  floor (D4); refused drop terms created nothing (D5).
+- **The 2 FAILs were reads, not behaviour:** `getOffer()` failed with exit -8 (type check) in local getter runs on
+  every lot except the one whose price was mid-drop (P1 "named buyer recorded", D4 "price now = floor"). Decoded
+  storage was correct (`decode account data`). Fixed in `f75a35b`: `_price()` has a single exit and `getOffer()`
+  computes the price in a statement. `SwapFactory.getVersion()` added so new lot code gets a new factory address.
