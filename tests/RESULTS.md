@@ -251,3 +251,15 @@ Factory `a3a5aae8…` (lot code with private and drop terms).
 New factory `f09f3541…` (version 3). Everything in run 11 passes again, plus the two reads that failed:
 `getOffer()` returns the named buyer (P1) and the floor price after a drop has ended (D4). Drop prices: 99.08 SHELL
 after the deposit, 89.90 just before paying, filled at 89.73 SHELL.
+
+## Fuzz run 1 — `run_fuzz.sh`, seed 457000394, 40 steps (2026-11-13, ended 16:48 UTC): 175 passed, 1 script false positive
+
+Factory `f09f3541…` (version 3), 14 lots created by random actions of the maker / taker / stranger wallets: listings
+and createLots (fixed and drop, public and private, NACKL / SHELL / USDC), funding with exact and wrong amounts,
+takes (exact, under by one unit, over, wrong currency, flag-16 SHELL), cancels by transfer, unsigned reclaim / close
+/ release, and wallets refusing payments. Conservation (C), per-lot accounting (L) and the factory ledger (F) held
+after every step; at the end every lot was empty.
+- **The one FAIL was the test:** at step 13 the terms of a lot created in that same step could not be read yet
+  (`KeyError: 'giveId'`), and the recheck reused the failed read. The same lot passed every later full sweep
+  (steps 20, 30, 40 and the end). Fixed: the recheck re-reads status, owed and terms, and a lot that still can't be
+  read is a WARN for the next sweep, not a rule failure.

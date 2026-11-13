@@ -42,7 +42,7 @@ WAL_ABI=TestWallet.abi.json
 GQL=https://shellnet.ackinacki.org/graphql
 EMPTY_CELL=te6ccgEBAQEAAgAAAA==
 N=1000000000; U=1000000
-PASS=0; FAIL=0
+PASS=0; FAIL=0; WARN=0
 
 say()  { echo; echo "=== $(date -u +%H:%M:%S) $* ==="; }
 die()  { echo "STOPPING: $*"; exit 1; }
@@ -169,13 +169,25 @@ check_lot() {  # lotHex -> L invariant
     [ "$bn$bs$bu" = "000" ] && { pass; return; }
     fail "L lot $l unreadable but holds NACKL $bn SHELL $bs USDC $bu"; return
   fi
-  check_lot_once "$l" "$st" "$og" "$tm" >/dev/null 2>&1 || { sleep 15; st=$(lot_json "$l" getStatus); og=$(lot_json "$l" getOwedTotal); }
-  check_lot_once "$l" "$st" "$og" "$tm" && pass || fail "L lot $l (see above)"
+  # Coins in flight or a read that failed (a just-created lot, a network hiccup): read everything again once.
+  check_lot_once "$l" "$st" "$og" "$tm" >/dev/null 2>&1 || {
+    sleep 15; st=$(lot_json "$l" getStatus); og=$(lot_json "$l" getOwedTotal); tm=$(lot_json "$l" getTerms); }
+  check_lot_once "$l" "$st" "$og" "$tm"
+  case $? in
+    0) pass;;
+    2) WARN=$((WARN+1)); echo "  WARN lot $l could not be read (checked again in the next full sweep)";;
+    *) fail "L lot $l (see above)";;
+  esac
 }
 check_lot_once() {  # lotHex statusJson owedJson termsJson
   python3 - "$2" "$3" "$4" "$(balances "$1:$FHEX")" "$1" <<'PY'
 import json, sys
-st, og, tm = (json.loads(x) for x in sys.argv[1:4]); bal = sys.argv[4].split(); lot = sys.argv[5]
+try:
+    st, og, tm = (json.loads(x) for x in sys.argv[1:4])
+    st["state"], og["give"], og["want"], tm["giveId"], tm["wantId"], tm["giveAmount"]
+except Exception:
+    sys.exit(2)          # unreadable (read error / not ready): not a rule violation
+bal = sys.argv[4].split(); lot = sys.argv[5]
 held = {1: int(bal[2]), 2: int(bal[3]), 3: int(bal[4])}
 state = int(st["state"]); gi, wi = int(tm["giveId"]), int(tm["wantId"]); ga = int(tm["giveAmount"])
 owg, oww = int(og["give"]), int(og["want"])
@@ -326,5 +338,5 @@ for l in "${LOTS[@]}"; do
   if [ "$s" = 0 ]; then fail "lot $l still OPEN after its maker cancelled"; elif [ "$bn$bs$bu" = "000" ]; then pass; else fail "lot $l (state $s) still holds NACKL $bn SHELL $bs USDC $bu"; fi
 done
 
-say "DONE  seed $SEED, $STEPS steps, ${#LOTS[@]} lots  PASS=$PASS FAIL=$FAIL"
+say "DONE  seed $SEED, $STEPS steps, ${#LOTS[@]} lots  PASS=$PASS FAIL=$FAIL WARN=$WARN (unreadable at the time, re-checked in later sweeps)"
 [ "$FAIL" = 0 ]
