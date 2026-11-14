@@ -73,18 +73,10 @@
   main { max-width: 1120px; margin: 0 auto; padding: 8px 16px 24px; display: grid; gap: 22px; grid-template-columns: 1fr; }
   @media (min-width: 960px) { main { grid-template-columns: 440px 1fr; align-items: start; gap: 28px; padding-top: 24px; } .left { position: sticky; top: 20px; } }
 
-  /* ---------- hero (price card with card stack behind) ---------- */
-  .stack { position: relative; height: 58px; margin: 6px 14px -18px; }
-  .stack button { position: absolute; left: 0; right: 0; height: 46px; border-radius: 16px 16px 0 0; border: 1px solid var(--glass-line); border-bottom: 0;
-    display: flex; align-items: center; justify-content: space-between; padding: 0 16px 10px; font-size: 13px; color: var(--ink-2); cursor: pointer;
-    background: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.03)); backdrop-filter: blur(10px); }
-  .stack button:nth-child(1) { top: 0; margin: 0 22px; opacity: .7; }
-  .stack button:nth-child(2) { top: 16px; margin: 0 10px; }
-  .stack b { font-family: var(--num); color: var(--ink); font-weight: 700; }
-  .hero { position: relative; border-radius: var(--r-xl); padding: 22px 20px 20px; text-align: center;
+  /* ---------- hero (price card; the market chip switches markets) ---------- */
+  .hero { position: relative; border-radius: var(--r-xl); padding: 18px 20px 18px; text-align: center; margin-top: 6px;
     background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03)); border: 1px solid var(--glass-line);
     backdrop-filter: blur(22px); -webkit-backdrop-filter: blur(22px);
-    -webkit-mask: radial-gradient(circle 30px at 50% -6px, transparent 97%, #000 100%); mask: radial-gradient(circle 30px at 50% -6px, transparent 97%, #000 100%);
     box-shadow: 0 30px 60px -30px rgba(0,0,0,.6); }
   .hero-top { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--ink-2); }
   .hero-top button { background: none; border: 0; color: var(--ink-2); cursor: pointer; padding: 4px; display: grid; place-items: center; }
@@ -99,7 +91,7 @@
   .chip-coins .coin + .coin { margin-left: -8px; }
   .hero .label { color: var(--ink-2); font-size: 13.5px; }
   .price { font-family: var(--num); font-weight: 800; font-size: clamp(44px, 12vw, 58px); letter-spacing: -.035em; line-height: 1.05; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
-  .price small { font-size: 15px; font-weight: 600; color: var(--ink-2); letter-spacing: 0; margin-left: 6px; }
+  .price small { display: block; font-size: 14px; font-weight: 600; color: var(--ink-2); letter-spacing: 0; margin: 2px 0 4px; }
   .hero-sub { color: var(--ink-3); font-size: 13px; }
   .hero-sub b { color: var(--ink-2); font-weight: 600; }
 
@@ -261,6 +253,7 @@
   .stats b { font: 700 14.5px var(--num); font-variant-numeric: tabular-nums; color: var(--ink); }
   .stats b small { font-size: 11.5px; color: var(--ink-3); font-weight: 600; }
   .stats b.up { color: var(--up); } .stats b.down { color: var(--down); }
+  .stats .wide { grid-column: 1 / -1; }
   /* Price chart: trades as a line, cheapest ask and best bid as dashed levels */
   .chart { border-radius: var(--r-xl); padding: 14px 16px 12px; margin-bottom: 18px; }
   .chart-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
@@ -353,7 +346,6 @@
 
 <main>
   <section class="left">
-    <div class="stack" id="stack" aria-label="Other markets"></div>
     <div class="hero">
       <div class="hero-top">
         <span>Market price</span>

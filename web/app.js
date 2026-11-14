@@ -252,7 +252,7 @@ function renderHome() {
   $("#pair-chip").innerHTML = `<span class="chip-coins">${coin(p.base)}${coin(p.quote)}</span>${sym(p.base)} / ${sym(p.quote)} ${ICON.chev}`;
   $("#buy-sub").textContent = sym(p.base);
   $("#sell-sub").textContent = sym(p.base);
-  $("#hero-unit").textContent = `${sym(p.quote)} / ${sym(p.base)}`;
+  $("#hero-unit").textContent = `${sym(p.quote)} per ${sym(p.base)}`;
   if (!loaded) return;
   if (asks.length) {
     $("#hero-label").textContent = `Best price to buy ${sym(p.base)}`;
@@ -269,14 +269,6 @@ function renderHome() {
     ? `<b>${fmt(forSale, dec(p.base), 0)} ${sym(p.base)}</b> for sale in ${asks.length} offer${asks.length === 1 ? "" : "s"} · ${bids.length} buyer${bids.length === 1 ? "" : "s"}`
     : `Be the first: tap <b>List</b> to set your price.`;
 
-  // other markets peek out behind the card
-  const others = PAIRS.map((q, i) => ({ q, i })).filter(({ i }) => i !== pairIdx).slice(0, 2);
-  $("#stack").innerHTML = others.map(({ q, i }) => {
-    const a = asksOf(q)[0];
-    return `<button data-i="${i}" aria-label="Switch to ${sym(q.base)} / ${sym(q.quote)}"><span>${sym(q.base)} / ${sym(q.quote)}</span><b>${a ? fmt(priceOf(a, q), dec(q.quote), 6) : "no offers"}</b></button>`;
-  }).join("");
-  if (others.length === 1) $("#stack").insertAdjacentHTML("afterbegin", `<button tabindex="-1" aria-hidden="true" style="pointer-events:none"></button>`);
-  $$("#stack button[data-i]").forEach((b) => b.addEventListener("click", () => setPair(Number(b.dataset.i))));
   renderStats();
   renderChart();
   renderRows();
@@ -370,13 +362,14 @@ function feesTotal() {
 }
 function renderStats() {
   const p = pair(), s = statsOf(p), fees = feesTotal();
-  const cell = (k, v, cls = "", title = "") => `<div${title ? ` title="${esc(title)}"` : ""}><span>${k}</span><b class="${cls}">${v}</b></div>`;
+  const cell = (k, v, cls = "", title = "", wide = false) => `<div${wide ? ` class="wide"` : ""}${title ? ` title="${esc(title)}"` : ""}><span>${k}</span><b class="${cls}">${v}</b></div>`;
   $("#stats").innerHTML =
     cell("Last trade", s.last ? `${fmt(tradePrice(s.last, p), dec(p.quote), 6)} <small>${sym(p.quote)}</small>` : "—") +
     cell("24h change", s.change === null ? "—" : `${s.change >= 0 ? "+" : "−"}${Math.abs(s.change).toFixed(1)}%`, s.change === null ? "" : s.change >= 0 ? "up" : "down") +
-    cell("24h volume", `${fmt(s.vol, dec(p.base), 0)} <small>${sym(p.base)}</small>`, "", `${s.trades} trade${s.trades === 1 ? "" : "s"} in the last 24 hours`) +
+    cell("24h volume", `${fmt(s.vol, dec(p.base), 0)} <small>${sym(p.base)}</small>`) +
+    cell("24h trades", String(s.trades)) +
     cell("Fees to treasury", fees.size ? [...fees].map(([id, v]) => `${fmt(v, dec(id), 2)} <small>${sym(id)}</small>`).join(" · ") : "—", "",
-      "The 1% fee from filled offers, all markets. It goes to the TalonHive treasury to keep the project running.");
+      "The 1% fee from filled offers, all markets. It goes to the TalonHive treasury to keep the project running.", true);
 }
 
 function renderChart() {
