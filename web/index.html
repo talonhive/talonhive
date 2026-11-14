@@ -255,7 +255,7 @@
   .stats b.up { color: var(--up); } .stats b.down { color: var(--down); }
   .stats .wide { grid-column: 1 / -1; }
   /* Price chart: trades as a line, cheapest ask and best bid as dashed levels */
-  .chart { border-radius: var(--r-xl); padding: 14px 16px 12px; margin-bottom: 18px; }
+  .chart { border-radius: var(--r-xl); padding: 14px 16px 12px; margin-top: 18px; }
   .chart-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
   .chart-head b { font-size: 15px; } .chart-head span { font-size: 12px; color: var(--ink-3); }
   .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
@@ -384,7 +384,6 @@
   </section>
 
   <section>
-    <div class="chart glass" id="chart" aria-label="Price chart"></div>
     <div class="market-head">
       <h2>Market</h2>
       <div class="seg glass" role="tablist" id="tabs">
@@ -395,6 +394,7 @@
     </div>
     <div class="chips mini sorts" id="sorts" role="group" aria-label="Sort offers" hidden></div>
     <div class="panel glass"><ul class="rows" id="rows"><li class="skeleton"></li><li class="skeleton"></li><li class="skeleton"></li></ul></div>
+    <div class="chart glass" id="chart" aria-label="Price chart"></div>
   </section>
 </main>
 

@@ -261,12 +261,16 @@ function renderHome() {
     $("#hero-label").textContent = `Best price to sell ${sym(p.base)}`;
     $("#hero-price").textContent = fmt(priceOf(bids[0], p), dec(p.quote), 6);
   } else {
-    $("#hero-label").textContent = "No open offers yet";
-    $("#hero-price").textContent = "—";
+    // No open offers: the last trade is still a real price, so show it rather than an empty dash.
+    const last = tradesOf(p).at(-1);
+    $("#hero-label").textContent = last ? "Last traded price" : "No open offers yet";
+    $("#hero-price").textContent = last ? fmt(tradePrice(last, p), dec(p.quote), 6) : "—";
   }
   const forSale = asks.reduce((a, l) => a + l.giveAmount, 0n);
+  const lastT = tradesOf(p).at(-1);
   $("#hero-sub").innerHTML = asks.length || bids.length
     ? `<b>${fmt(forSale, dec(p.base), 0)} ${sym(p.base)}</b> for sale in ${asks.length} offer${asks.length === 1 ? "" : "s"} · ${bids.length} buyer${bids.length === 1 ? "" : "s"}`
+    : lastT ? `Traded ${ago(lastT.closedAt)} · no open offers now. Tap <b>List</b> to set your price.`
     : `Be the first: tap <b>List</b> to set your price.`;
 
   renderStats();
