@@ -379,7 +379,7 @@ function renderStats() {
 // Price chart, minimal style: one stepped line (the price holds until the next trade, so nothing is drawn
 // that nobody traded at), a dotted line at the period's opening price, and a live point at the best open
 // offer. Drag along it to read the price at any moment; the chart's own header shows it.
-const RANGES = [["1d", "1D", 86400], ["1w", "1W", 7 * 86400], ["1m", "1M", 30 * 86400], ["all", "All", 0]];
+const RANGES = [["1h", "1H", 3600], ["1d", "1D", 86400], ["1w", "1W", 7 * 86400], ["1m", "1M", 30 * 86400], ["all", "All", 0]];
 const MIN_TRADES_FOR_RANGES = 6;   // fewer trades than this: just "All"
 let chartRange = RANGES.some(([v]) => v === store.get("range")) ? store.get("range") : "all";
 let scrubbing = false;
@@ -424,7 +424,7 @@ function renderChart() {
 
   const change = (to) => {
     const pct = open ? ((to - open) / open) * 100 : 0;
-    const word = { "1d": "today", "1w": "this week", "1m": "this month", all: `since ${new Date(t0 * 1000).toLocaleDateString([], { month: "short", day: "numeric" })}` }[range];
+    const word = { "1h": "in the last hour", "1d": "today", "1w": "this week", "1m": "this month", all: `since ${new Date(t0 * 1000).toLocaleDateString([], { month: "short", day: "numeric" })}` }[range];
     return Math.abs(pct) < 0.05 ? `No change ${word}` : `<span class="${pct > 0 ? "up" : "down"}">${pct > 0 ? "+" : "−"}${Math.abs(pct).toFixed(1)}%</span> ${word}`;
   };
   const headPrice = live ? live.y : last;

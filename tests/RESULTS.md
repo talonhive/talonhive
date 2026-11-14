@@ -263,3 +263,10 @@ after every step; at the end every lot was empty.
   (`KeyError: 'giveId'`), and the recheck reused the failed read. The same lot passed every later full sweep
   (steps 20, 30, 40 and the end). Fixed: the recheck re-reads status, owed and terms, and a lot that still can't be
   read is a WARN for the next sweep, not a rule failure.
+
+## Fuzz run 2 — `run_fuzz.sh`, seed 271157197, 150 steps (2026-11-14, 07:37–09:42 UTC): 919 passed, 0 failed, 0 warnings
+
+Same factory `f09f3541…` and wallets as run 1, with the fixed recheck. 150 random steps over 53 lots (listings and
+createLots, fixed and drop, public and private, all three currencies; exact, short, over and wrong-currency payments;
+cancels, unsigned reclaim / close / release, refusing wallets). Conservation (C), per-lot accounting (L) and the
+factory ledger (F) held after every step, and at the end no lot held coins. No lot was unreadable at any sweep.
