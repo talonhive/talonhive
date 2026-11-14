@@ -254,25 +254,24 @@
   .stats b small { font-size: 11.5px; color: var(--ink-3); font-weight: 600; }
   .stats b.up { color: var(--up); } .stats b.down { color: var(--down); }
   .stats .wide { grid-column: 1 / -1; }
-  /* Price chart: trades as a line, cheapest ask and best bid as dashed levels */
-  .chart { border-radius: var(--r-xl); padding: 14px 16px 12px; margin-top: 18px; }
-  .chart-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
-  .chart-head b { font-size: 15px; } .chart-head span { font-size: 12px; color: var(--ink-3); }
-  .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
-  .chart-empty { margin: 14px 0 10px; color: var(--ink-3); font-size: 13.5px; }
-  .c-axis { stroke: rgba(255,255,255,.10); stroke-width: 1; }
-  .c-line { fill: none; stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-  .c-dot { fill: var(--ink); stroke: #111; stroke-width: 2; }
-  .c-hit { fill: transparent; }
-  .c-pt { cursor: pointer; outline: none; } .c-pt:hover .c-dot, .c-pt:focus-visible .c-dot { r: 6; }
-  line.c-ask { stroke: var(--down); stroke-width: 1.5; stroke-dasharray: 5 5; } line.c-bid { stroke: var(--up); stroke-width: 1.5; stroke-dasharray: 5 5; }
-  line.tick { stroke-dasharray: none; opacity: .55; }
-  text.c-tag { font: 700 12px var(--num); } text.c-ask { fill: var(--down); } text.c-bid { fill: var(--up); }
-  .c-time { fill: var(--ink-3); font: 500 11px var(--num); }
-  .chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--ink-3); margin-top: 4px; }
-  .chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
-  .chart-legend i { width: 14px; height: 0; border-top: 2px solid var(--ink); }
-  .chart-legend i.lg-ask { border-top: 2px dashed var(--down); } .chart-legend i.lg-bid { border-top: 2px dashed var(--up); }
+  /* Price chart, minimal: no box, no axes; one stepped line, dotted opening price, drag to read */
+  .chart { margin-top: 26px; padding: 0 2px; }
+  .ch-head { margin-bottom: 10px; min-height: 52px; }
+  .ch-price b { font: 800 26px/1.15 var(--num); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .ch-price small { font-size: 13px; color: var(--ink-3); font-weight: 600; }
+  .ch-sub { font-size: 13px; color: var(--ink-2); margin-top: 2px; }
+  .ch-sub .up { color: var(--up); font-weight: 700; } .ch-sub .down { color: var(--down); font-weight: 700; }
+  .chart svg { display: block; width: 100%; height: auto; overflow: visible; touch-action: pan-y; cursor: crosshair; user-select: none; -webkit-user-select: none; }
+  .ch-line { fill: none; stroke: var(--ink); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+  .ch-open { stroke: rgba(255,255,255,.28); stroke-width: 1.5; stroke-dasharray: 1.5 6; stroke-linecap: round; }
+  .ch-link { stroke: rgba(255,255,255,.45); stroke-width: 1.5; stroke-dasharray: 3 4; }
+  .ch-end { stroke: #000; stroke-width: 2; } .ch-end.up { fill: var(--up); } .ch-end.down { fill: var(--down); }
+  .ch-hair { stroke: rgba(255,255,255,.35); stroke-width: 1; }
+  .ch-knob { fill: var(--ink); stroke: #000; stroke-width: 2.5; }
+  #ch-scrub[hidden] { display: none; }   /* SVG elements ignore the hidden attribute on their own */
+  .ch-tabs { display: flex; gap: 4px; margin-top: 12px; }
+  .ch-tabs button { flex: 1; background: none; border: 0; padding: 8px 0; border-radius: 10px; cursor: pointer; color: var(--ink-3); font: 700 14px var(--num); }
+  .ch-tabs button[aria-pressed="true"] { color: var(--ink); background: rgba(255,255,255,.08); }
   .sorts { margin: -2px 0 10px; } .sorts[hidden] { display: none; }
   /* Share + help under the deal card */
   .share-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 12px; flex-wrap: wrap; }
@@ -394,7 +393,7 @@
     </div>
     <div class="chips mini sorts" id="sorts" role="group" aria-label="Sort offers" hidden></div>
     <div class="panel glass"><ul class="rows" id="rows"><li class="skeleton"></li><li class="skeleton"></li><li class="skeleton"></li></ul></div>
-    <div class="chart glass" id="chart" aria-label="Price chart"></div>
+    <div class="chart" id="chart" aria-label="Price chart"></div>
   </section>
 </main>
 

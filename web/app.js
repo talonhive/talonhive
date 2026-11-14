@@ -376,43 +376,101 @@ function renderStats() {
       "The 1% fee from filled offers, all markets. It goes to the TalonHive treasury to keep the project running.", true);
 }
 
+// Price chart, minimal style: one stepped line (the price holds until the next trade, so nothing is drawn
+// that nobody traded at), a dotted line at the period's opening price, and a live point at the best open
+// offer. Drag along it to read the price at any moment; the chart's own header shows it.
+const RANGES = [["1d", "1D", 86400], ["1w", "1W", 7 * 86400], ["1m", "1M", 30 * 86400], ["all", "All", 0]];
+const MIN_TRADES_FOR_RANGES = 6;   // fewer trades than this: just "All"
+let chartRange = RANGES.some(([v]) => v === store.get("range")) ? store.get("range") : "all";
+let scrubbing = false;
+
 function renderChart() {
+  if (scrubbing) return;                                   // don't redraw under the user's finger
   const p = pair(), el = $("#chart");
-  const t = tradesOf(p).slice(-40), asks = asksOf(p), bids = bidsOf(p);
-  const head = `<div class="chart-head"><b>Price</b><span>${sym(p.quote)} per ${sym(p.base)}</span></div>`;
-  if (!t.length && !asks.length && !bids.length) { el.innerHTML = head + `<p class="chart-empty">The chart starts with the first trade.</p>`; return; }
-  // Drawn at its real width (one unit = one pixel) so labels stay readable on phones.
-  const W = Math.max(280, Math.round(el.clientWidth - 32) || 600), H = 170, L = 6, R = 78, T = 14, B = 24;
-  const pts = t.map((l) => ({ x: l.closedAt, y: Number(tradePrice(l, p)), l }));
-  const askY = asks.slice(0, 6).map((l) => Number(priceOf(l, p))), bidY = bids.slice(0, 6).map((l) => Number(priceOf(l, p)));
-  const ys = [...pts.map((q) => q.y), ...askY, ...bidY];
+  const all = tradesOf(p);
+  const offer = asksOf(p)[0] || bidsOf(p)[0];
+  const unit = `${sym(p.quote)} per ${sym(p.base)}`;
+  const lbl = (v) => fmt(BigInt(Math.round(v)), dec(p.quote), 6);
+  if (!all.length) {
+    el.innerHTML = `<div class="ch-head"><div class="ch-price"><b>—</b> <small>${unit}</small></div><div class="ch-sub">The chart starts with the first trade.</div></div>`;
+    return;
+  }
+  const showRanges = all.length >= MIN_TRADES_FOR_RANGES;
+  const range = showRanges ? chartRange : "all";
+  const now = Date.now() / 1000;
+  const span = RANGES.find(([v]) => v === range)[2];
+  const start = span ? now - span : all[0].closedAt;
+  // Step series: the price going into the period (the last trade before it), then each trade inside it.
+  const before = [...all].reverse().find((l) => l.closedAt < start);
+  const inside = all.filter((l) => l.closedAt >= start);
+  const steps = [];
+  if (before) steps.push({ t: start, y: Number(tradePrice(before, p)), l: before });
+  for (const l of inside) steps.push({ t: l.closedAt, y: Number(tradePrice(l, p)), l });
+  const open = steps[0].y, last = steps.at(-1).y;
+  const live = offer ? { y: Number(priceOf(offer, p)), what: offer.giveId === p.base ? "Cheapest for sale now" : "Best buyer now" } : null;
+
+  const W = Math.max(280, Math.round(el.clientWidth) || 600), H = 190, PT = 14, PB = 14, PR = 10;
+  const ys = [...steps.map((s) => s.y), ...(live ? [live.y] : [])];
   let lo = Math.min(...ys), hi = Math.max(...ys);
   if (hi === lo) { hi = hi * 1.1 || 1; lo = lo * 0.9; }
-  const padY = (hi - lo) * 0.14; lo = Math.max(0, lo - padY); hi += padY;
-  const now = Date.now() / 1000, x0 = pts.length ? Math.min(pts[0].x, now - 3600) : now - 86400;
-  const X = (x) => L + ((x - x0) / (now - x0)) * (W - L - R), Y = (y) => T + ((hi - y) / (hi - lo)) * (H - T - B);
-  const lbl = (v) => fmt(BigInt(Math.round(v)), dec(p.quote), 6);
-  const when = (s) => new Date(s * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-  const line = pts.length > 1 ? `<path class="c-line" d="${pts.map((q, i) => `${i ? "L" : "M"}${X(q.x).toFixed(1)},${Y(q.y).toFixed(1)}`).join(" ")}"/>` : "";
-  const level = (y, cls, text) => `<line class="${cls}" x1="${L}" x2="${W - R + 4}" y1="${Y(y).toFixed(1)}" y2="${Y(y).toFixed(1)}"/>
-    <text class="c-tag ${cls}" x="${W - R + 8}" y="${(Y(y) + 4).toFixed(1)}">${text}</text>`;
-  const ticks = (list, cls) => list.slice(1).map((y) => `<line class="${cls} tick" x1="${W - R - 10}" x2="${W - R + 2}" y1="${Y(y).toFixed(1)}" y2="${Y(y).toFixed(1)}"/>`).join("");
-  el.innerHTML = head + `
-    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Recent trade prices with the cheapest offer for sale and the best buyer">
-      <line class="c-axis" x1="${L}" x2="${W - R + 4}" y1="${H - B}" y2="${H - B}"/>
-      ${bidY.length ? level(bidY[0], "c-bid", lbl(bidY[0])) + ticks(bidY, "c-bid") : ""}
-      ${askY.length ? level(askY[0], "c-ask", lbl(askY[0])) + ticks(askY, "c-ask") : ""}
-      ${line}
-      ${pts.map((q) => `<g class="c-pt" data-lot="${q.l.lot}" tabindex="0" role="button" aria-label="Trade at ${lbl(q.y)}, ${when(q.x)}"><circle class="c-hit" cx="${X(q.x).toFixed(1)}" cy="${Y(q.y).toFixed(1)}" r="12"/><circle class="c-dot" cx="${X(q.x).toFixed(1)}" cy="${Y(q.y).toFixed(1)}" r="4"/><title>${lbl(q.y)} ${sym(p.quote)} · ${when(q.x)}</title></g>`).join("")}
-      <text class="c-time" x="${L}" y="${H - 6}">${pts.length ? when(x0) : "24 h ago"}</text>
-      <text class="c-time" x="${W - R}" y="${H - 6}" text-anchor="end">now</text>
+  const pad = (hi - lo) * 0.1; lo = Math.max(0, lo - pad); hi += pad;
+  const t0 = steps[0].t, t1 = now;
+  const X = (t) => ((t - t0) / Math.max(1, t1 - t0)) * (W - PR);
+  const Y = (y) => PT + ((hi - y) / (hi - lo)) * (H - PT - PB);
+  let d = `M0,${Y(steps[0].y).toFixed(1)}`;
+  for (const s of steps.slice(1)) d += ` H${X(s.t).toFixed(1)} V${Y(s.y).toFixed(1)}`;
+  d += ` H${X(t1).toFixed(1)}`;
+  const up = (live ? live.y : last) >= open;
+
+  const change = (to) => {
+    const pct = open ? ((to - open) / open) * 100 : 0;
+    const word = { "1d": "today", "1w": "this week", "1m": "this month", all: `since ${new Date(t0 * 1000).toLocaleDateString([], { month: "short", day: "numeric" })}` }[range];
+    return Math.abs(pct) < 0.05 ? `No change ${word}` : `<span class="${pct > 0 ? "up" : "down"}">${pct > 0 ? "+" : "−"}${Math.abs(pct).toFixed(1)}%</span> ${word}`;
+  };
+  const headPrice = live ? live.y : last;
+  el.innerHTML = `
+    <div class="ch-head">
+      <div class="ch-price"><b id="ch-price">${lbl(headPrice)}</b> <small>${unit}</small></div>
+      <div class="ch-sub" id="ch-sub">${live ? `${live.what} · ` : "Last trade · "}${change(headPrice)}</div>
+    </div>
+    <svg viewBox="0 0 ${W} ${H}" id="ch-svg" role="img" aria-label="Price over time: ${steps.length} price${steps.length === 1 ? "" : "s"}, last ${lbl(last)} ${unit}">
+      <line class="ch-open" x1="0" x2="${W}" y1="${Y(open).toFixed(1)}" y2="${Y(open).toFixed(1)}"/>
+      <path class="ch-line" d="${d}"/>
+      ${live ? `<line class="ch-link" x1="${X(t1).toFixed(1)}" x2="${X(t1).toFixed(1)}" y1="${Y(last).toFixed(1)}" y2="${Y(live.y).toFixed(1)}"/>` : ""}
+      <circle class="ch-end ${up ? "up" : "down"}" cx="${X(t1).toFixed(1)}" cy="${Y(live ? live.y : last).toFixed(1)}" r="4.5"/>
+      <g id="ch-scrub" hidden><line class="ch-hair" y1="0" y2="${H}"/><circle class="ch-knob" r="5.5"/></g>
     </svg>
-    <div class="chart-legend"><span><i class="lg-trade"></i>Trades</span>${askY.length ? `<span><i class="lg-ask"></i>Cheapest for sale</span>` : ""}${bidY.length ? `<span><i class="lg-bid"></i>Best buyer</span>` : ""}${!pts.length ? `<span>No trades yet</span>` : ""}</div>`;
-  $$(".c-pt", el).forEach((g) => {
-    const open = () => openSheet(viewProof(g.dataset.lot));
-    g.addEventListener("click", open);
-    g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
-  });
+    ${showRanges ? `<div class="ch-tabs" role="group" aria-label="Time range">${RANGES.map(([v, t]) => `<button type="button" data-range="${v}" aria-pressed="${range === v}">${t}</button>`).join("")}</div>` : ""}`;
+
+  $$("[data-range]", el).forEach((b) => b.addEventListener("click", () => { chartRange = b.dataset.range; store.set("range", chartRange); renderChart(); }));
+
+  // Drag to read: the price at a moment is the last trade at or before it (or the live offer at the very end).
+  const svg = $("#ch-svg", el), g = $("#ch-scrub", el), hair = $(".ch-hair", el), knob = $(".ch-knob", el);
+  const priceEl = $("#ch-price", el), subEl = $("#ch-sub", el);
+  const restore = { price: priceEl.innerHTML, sub: subEl.innerHTML };
+  const at = (clientX) => {
+    const r = svg.getBoundingClientRect();
+    const x = Math.max(0, Math.min(W, ((clientX - r.left) / r.width) * W));
+    if (live && x >= X(t1) - 8) return { x: X(t1), y: live.y, text: live.what };
+    const t = t0 + (x / (W - PR)) * (t1 - t0);
+    let s = steps[0];
+    for (const q of steps) { if (q.t <= t) s = q; else break; }
+    return { x, y: s.y, text: new Date(t * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) };
+  };
+  const move = (e) => {
+    const v = at(e.clientX);
+    g.hidden = false;
+    hair.setAttribute("x1", v.x); hair.setAttribute("x2", v.x);
+    knob.setAttribute("cx", v.x); knob.setAttribute("cy", Y(v.y));
+    priceEl.textContent = lbl(v.y);
+    subEl.innerHTML = `${esc(v.text)} · ${change(v.y)}`;
+  };
+  const end = () => { scrubbing = false; g.hidden = true; priceEl.innerHTML = restore.price; subEl.innerHTML = restore.sub; };
+  svg.addEventListener("pointerdown", (e) => { scrubbing = true; svg.setPointerCapture?.(e.pointerId); move(e); });
+  svg.addEventListener("pointermove", (e) => { if (scrubbing || e.pointerType === "mouse") { if (e.pointerType === "mouse") scrubbing = true; move(e); } });
+  svg.addEventListener("pointerup", end);
+  svg.addEventListener("pointercancel", end);
+  svg.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") end(); });
 }
 
 // ---------- activity (every offer and trade, like a block explorer for the Swap) ----------
