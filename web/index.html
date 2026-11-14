@@ -255,6 +255,49 @@
   .match .sub { margin-top: 8px; font-size: 13px; color: var(--ink-2); line-height: 1.45; }
   .dropbar { height: 5px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden; margin-top: 10px; }
   .dropbar i { display: block; height: 100%; background: var(--accent); border-radius: 99px; transition: width .6s ease; }
+  /* Stats strip under the hero price */
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.08); text-align: left; }
+  .stats span { display: block; font-size: 11.5px; color: var(--ink-3); font-weight: 600; }
+  .stats b { font: 700 14.5px var(--num); font-variant-numeric: tabular-nums; color: var(--ink); }
+  .stats b small { font-size: 11.5px; color: var(--ink-3); font-weight: 600; }
+  .stats b.up { color: var(--up); } .stats b.down { color: var(--down); }
+  /* Price chart: trades as a line, cheapest ask and best bid as dashed levels */
+  .chart { border-radius: var(--r-xl); padding: 14px 16px 12px; margin-bottom: 18px; }
+  .chart-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+  .chart-head b { font-size: 15px; } .chart-head span { font-size: 12px; color: var(--ink-3); }
+  .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .chart-empty { margin: 14px 0 10px; color: var(--ink-3); font-size: 13.5px; }
+  .c-axis { stroke: rgba(255,255,255,.10); stroke-width: 1; }
+  .c-line { fill: none; stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+  .c-dot { fill: var(--ink); stroke: #111; stroke-width: 2; }
+  .c-hit { fill: transparent; }
+  .c-pt { cursor: pointer; outline: none; } .c-pt:hover .c-dot, .c-pt:focus-visible .c-dot { r: 6; }
+  line.c-ask { stroke: var(--down); stroke-width: 1.5; stroke-dasharray: 5 5; } line.c-bid { stroke: var(--up); stroke-width: 1.5; stroke-dasharray: 5 5; }
+  line.tick { stroke-dasharray: none; opacity: .55; }
+  text.c-tag { font: 700 12px var(--num); } text.c-ask { fill: var(--down); } text.c-bid { fill: var(--up); }
+  .c-time { fill: var(--ink-3); font: 500 11px var(--num); }
+  .chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--ink-3); margin-top: 4px; }
+  .chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .chart-legend i { width: 14px; height: 0; border-top: 2px solid var(--ink); }
+  .chart-legend i.lg-ask { border-top: 2px dashed var(--down); } .chart-legend i.lg-bid { border-top: 2px dashed var(--up); }
+  .sorts { margin: -2px 0 10px; } .sorts[hidden] { display: none; }
+  /* Share + help under the deal card */
+  .share-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 12px; flex-wrap: wrap; }
+  .share-row .btn { display: inline-flex; align-items: center; gap: 8px; }
+  .linkbtn { background: none; border: 0; padding: 0; cursor: pointer; color: var(--ink); font-weight: 600; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(255,255,255,.35); }
+  /* Phone tab bar */
+  .tabbar { display: none; }
+  @media (max-width: 719px) {
+    .wide-only { display: none; }
+    body { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+    .tabbar { display: grid; grid-template-columns: repeat(4, 1fr); position: fixed; left: 0; right: 0; bottom: 0; z-index: 30;
+      padding: 6px 6px max(6px, env(safe-area-inset-bottom)); background: rgba(10,10,10,.88); border-top: 1px solid var(--glass-line);
+      backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+    .tabbar button { border: 0; background: none; color: var(--ink-3); display: grid; justify-items: center; gap: 3px; padding: 6px 2px; font-size: 11px; font-weight: 600; cursor: pointer; border-radius: 12px; }
+    .tabbar button svg { width: 21px; height: 21px; }
+    .tabbar button[aria-current="page"] { color: var(--ink); }
+    #toast { bottom: calc(84px + env(safe-area-inset-bottom)); }
+  }
   /* Quick-pick chips under an input */
   .chips.mini { gap: 6px; margin-top: 2px; }
   .chips.mini button { padding: 6px 11px; font-size: 12.5px; }
@@ -299,7 +342,10 @@
   <div class="top-right">
     <button class="install" id="btn-install" hidden aria-label="Install TalonHive Swap as an app">Install</button>
     <span id="net" class="net glass"><i></i><span>Connecting…</span></span>
-    <button class="icon-btn" id="btn-mine" aria-label="My lots" title="My lots">
+    <button class="icon-btn wide-only" id="btn-activity" aria-label="Activity: every trade" title="Activity: every trade">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>
+    </button>
+    <button class="icon-btn" id="btn-mine" aria-label="My offers" title="My offers">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5"/></svg>
     </button>
   </div>
@@ -317,6 +363,7 @@
       <div class="label" id="hero-label">Best price to buy</div>
       <div class="price"><span id="hero-price">—</span><small id="hero-unit"></small></div>
       <div class="hero-sub" id="hero-sub">Reading the chain…</div>
+      <div class="stats" id="stats" aria-label="Market stats"></div>
     </div>
 
     <div class="actions">
@@ -339,11 +386,13 @@
         <p><b>Nobody holds your coins.</b> Each offer is its own contract, and it can only pay the seller, the buyer, or a 1% fee. Not even TalonHive can move them.</p>
         <p><b>Instant.</b> Pay an offer and the coins come back in the same transaction.</p>
         <p><b>Refunds are automatic.</b> Too little, too late, or someone was faster? Your payment comes back.</p>
+        <p><button type="button" class="linkbtn" id="trust-how">How it works, step by step</button></p>
       </div>
     </details>
   </section>
 
   <section>
+    <div class="chart glass" id="chart" aria-label="Price chart"></div>
     <div class="market-head">
       <h2>Market</h2>
       <div class="seg glass" role="tablist" id="tabs">
@@ -352,6 +401,7 @@
         <button role="tab" data-tab="recent" aria-selected="false">Recent</button>
       </div>
     </div>
+    <div class="chips mini sorts" id="sorts" role="group" aria-label="Sort offers" hidden></div>
     <div class="panel glass"><ul class="rows" id="rows"><li class="skeleton"></li><li class="skeleton"></li><li class="skeleton"></li></ul></div>
   </section>
 </main>
@@ -360,6 +410,13 @@
   Test network (Shellnet). The contracts passed 89 on-chain checks but have not yet had an independent audit; mainnet comes after one.
   This page reads the chain directly and never asks for keys or seed phrases. Factory <code id="factory"></code>
 </footer>
+
+<nav class="tabbar" id="tabbar" aria-label="Sections">
+  <button data-nav="market" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>Market</button>
+  <button data-nav="activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg>Activity</button>
+  <button data-nav="mine"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-3.5 4.5-5 8-5s6.5 1.5 8 5"/></svg>My offers</button>
+  <button data-nav="how"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01"/></svg>How it works</button>
+</nav>
 
 <dialog class="sheet" id="sheet" aria-labelledby="sheet-title">
   <div class="sheet-card">

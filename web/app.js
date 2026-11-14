@@ -91,26 +91,42 @@ async function fetchStatuses(list) {
   await fetchOutcomes(list);
 }
 
-// A finished lot was either filled or cancelled; its own Filled / Reclaimed event says which. Final, so cached.
-const outcomes = new Map();   // lot hex -> "filled" | "cancelled"
+// A finished lot was either filled or cancelled; its own Filled / Reclaimed event says which, and when. Filled
+// also carries the buyer and the fee, which give the real trade price (a drop offer fills below its start).
+// Final, so cached.
+const outcomes = new Map();   // lot hex -> { kind: "filled" | "cancelled", at, taker?, fee?, price? }
 async function fetchOutcomes(list) {
-  const todo = list.filter((l) => (l.status === "settled" || l.status === "closed") && !outcomes.has(l.lot)).slice(0, 40);
+  const todo = list.filter((l) => (l.status === "settled" || l.status === "closed") && !outcomes.has(l.lot)).slice(0, 60);
   for (let i = 0; i < todo.length; i += 20) {
     const chunk = todo.slice(i, i + 20);
     const q = chunk.map((l, k) => `b${k}: account(account_id:"${l.lot}", dapp_id:"${F}") {
-      messages(msg_type:[ExtOut], last:6) { edges { node { body } } } }`).join("\n");
+      messages(msg_type:[ExtOut], last:6) { edges { node { body created_at } } } }`).join("\n");
     let d;
-    try { d = await gql(`{ blockchain { ${q} } }`); } catch { return; }   // labels can wait for the next refresh
+    try { d = await gql(`{ blockchain { ${q} } }`); } catch { break; }   // labels can wait for the next refresh
     chunk.forEach((l, k) => {
       for (const { node } of d.blockchain[`b${k}`]?.messages?.edges || []) {
         let id;
         try { id = Number(new Slice(parseBoc(node.body)).uint(32)); } catch { continue; }
-        if (id === IDS.Filled) { outcomes.set(l.lot, "filled"); break; }
-        if (id === IDS.Reclaimed) { outcomes.set(l.lot, "cancelled"); break; }
+        if (id === IDS.Filled) {
+          let e = null; try { e = decodeEvent(node.body, ABI.Filled, IDS.Filled); } catch { /* keep the label */ }
+          // The lot charged fee = price × 1%, so price ≈ fee / 1% (within 99 base units), kept between the floor and paid.
+          let price = l.wantAmount;
+          if (e && isDrop(l) && FEE_BPS > 0n) {
+            price = (e.fee * 10000n) / FEE_BPS;
+            if (price > e.paid) price = e.paid;
+            if (price < l.wantAmount) price = l.wantAmount;
+          }
+          outcomes.set(l.lot, { kind: "filled", at: node.created_at, taker: e?.taker || "", fee: e ? e.fee : (l.wantAmount * FEE_BPS) / 10000n, price });
+          break;
+        }
+        if (id === IDS.Reclaimed) { outcomes.set(l.lot, { kind: "cancelled", at: node.created_at }); break; }
       }
     });
   }
-  for (const l of list) l.outcome = outcomes.get(l.lot) || "";
+  for (const l of list) {
+    const o = outcomes.get(l.lot);
+    l.outcome = o?.kind || ""; l.closedAt = o?.at || 0; l.taker = o?.taker || ""; l.fee = o?.fee ?? 0n; l.fillPrice = o?.price ?? 0n;
+  }
 }
 
 // ---------- numbers ----------
@@ -225,6 +241,7 @@ const ICON = {
   chev: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 9 6 6 6-6"/></svg>`,
   right: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m9 6 6 6-6 6"/></svg>`,
   check: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17 19 7"/></svg>`,
+  share: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none"><path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>`,
   shield: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="flex:none;margin-top:1px"><path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6l-8-3Z"/><path d="M12 8v4M12 16h.01"/></svg>`,
 };
 
@@ -260,10 +277,14 @@ function renderHome() {
   }).join("");
   if (others.length === 1) $("#stack").insertAdjacentHTML("afterbegin", `<button tabindex="-1" aria-hidden="true" style="pointer-events:none"></button>`);
   $$("#stack button[data-i]").forEach((b) => b.addEventListener("click", () => setPair(Number(b.dataset.i))));
+  renderStats();
+  renderChart();
   renderRows();
 }
 
 function setPair(i) { pairIdx = i; renderHome(); }
+const SORTS = [["best", "Best price"], ["new", "Newest"], ["ending", "Ending soon"], ["big", "Biggest"]];
+let sortBy = SORTS.some(([v]) => v === store.get("sort")) ? store.get("sort") : "best";
 
 function renderRows() {
   const p = pair();
@@ -272,6 +293,20 @@ function renderRows() {
   if (tab === "asks") list = asksOf(p);
   else if (tab === "bids") list = bidsOf(p);
   else list = onPair(p).filter(visible).sort((a, b) => b.createdAt - a.createdAt).slice(0, 20);
+  const bestLot = tab === "recent" ? null : list[0];
+  // Sort chips (open offers only): best price first is the default.
+  const so = $("#sorts");
+  so.hidden = tab === "recent" || list.length < 2;
+  so.innerHTML = SORTS.map(([v, t]) => `<button type="button" data-sort="${v}" aria-pressed="${sortBy === v}">${t}</button>`).join("");
+  $$("[data-sort]", so).forEach((b) => b.addEventListener("click", () => { sortBy = b.dataset.sort; store.set("sort", sortBy); renderRows(); }));
+  if (tab !== "recent" && sortBy !== "best") {
+    const size = (l) => (l.giveId === p.base ? l.giveAmount : l.wantAmount);
+    list = [...list].sort({
+      new: (a, b) => b.createdAt - a.createdAt,
+      ending: (a, b) => a.deadline - b.deadline,
+      big: (a, b) => (size(b) > size(a) ? 1 : size(b) < size(a) ? -1 : 0),
+    }[sortBy] || (() => 0));
+  }
   if (!list.length) {
     const msg = {
       asks: [`No ${sym(p.base)} for sale right now`, `List yours and set the price.`, "List an offer"],
@@ -282,7 +317,7 @@ function renderRows() {
     $("#empty-cta").addEventListener("click", () => openSheet(viewList({ side: tab === "bids" ? "buy" : "sell" })));
     return;
   }
-  el.innerHTML = list.map((l, k) => rowHtml(l, p, k === 0 && tab !== "recent")).join("");
+  el.innerHTML = list.map((l) => rowHtml(l, p, l === bestLot)).join("");
   $$(".row", el).forEach((r) => r.addEventListener("click", () => openSheet(viewTake(r.dataset.lot))));
 }
 
@@ -308,6 +343,182 @@ function rowHtml(l, p, best) {
     <span class="row-end"><b>${fmt(priceOf(l, p), dec(p.quote), 6)}</b><small>${sym(p.quote)} each</small><br>${statusTag}</span></li>`;
 }
 
+// ---------- trades, stats, chart ----------
+// Everything here comes from the newest EVENTS_TO_SCAN offers this page reads from the chain (no backend).
+const pairOf = (l) => PAIRS.find((x) => [x.base, x.quote].includes(l.giveId) && [x.base, x.quote].includes(l.wantId));
+/** Price in quote per base for this lot when it costs `want`. */
+const px = (l, p, want) => { const b = 10n ** BigInt(dec(p.base)); return l.giveId === p.base ? (want * b) / l.giveAmount : (l.giveAmount * b) / want; };
+const tradePrice = (l, p) => px(l, p, l.fillPrice || l.wantAmount);
+const tradeBase = (l, p) => (l.giveId === p.base ? l.giveAmount : (l.fillPrice || l.wantAmount));
+const tradeQuote = (l, p) => (l.giveId === p.base ? (l.fillPrice || l.wantAmount) : l.giveAmount);
+const tradesOf = (p = pair()) => onPair(p).filter((l) => l.outcome === "filled" && l.closedAt).sort((a, b) => a.closedAt - b.closedAt);
+const who = (addr, mine = isMine(addr)) => (mine ? "You" : addr ? nickname(addr) : "Someone");
+
+function statsOf(p) {
+  const t = tradesOf(p), now = Date.now() / 1000;
+  const last = t.at(-1);
+  const before = [...t].reverse().find((l) => l.closedAt <= now - 86400);
+  const day = t.filter((l) => l.closedAt > now - 86400);
+  let change = null;
+  if (last && before) { const a = Number(tradePrice(before, p)), b = Number(tradePrice(last, p)); if (a) change = ((b - a) / a) * 100; }
+  return { last, change, vol: day.reduce((a, l) => a + tradeBase(l, p), 0n), trades: day.length };
+}
+function feesTotal() {
+  const m = new Map();
+  for (const l of lots) if (l.outcome === "filled") m.set(l.wantId, (m.get(l.wantId) || 0n) + l.fee);
+  return m;
+}
+function renderStats() {
+  const p = pair(), s = statsOf(p), fees = feesTotal();
+  const cell = (k, v, cls = "", title = "") => `<div${title ? ` title="${esc(title)}"` : ""}><span>${k}</span><b class="${cls}">${v}</b></div>`;
+  $("#stats").innerHTML =
+    cell("Last trade", s.last ? `${fmt(tradePrice(s.last, p), dec(p.quote), 6)} <small>${sym(p.quote)}</small>` : "—") +
+    cell("24h change", s.change === null ? "—" : `${s.change >= 0 ? "+" : "−"}${Math.abs(s.change).toFixed(1)}%`, s.change === null ? "" : s.change >= 0 ? "up" : "down") +
+    cell("24h volume", `${fmt(s.vol, dec(p.base), 0)} <small>${sym(p.base)}</small>`, "", `${s.trades} trade${s.trades === 1 ? "" : "s"} in the last 24 hours`) +
+    cell("Fees to treasury", fees.size ? [...fees].map(([id, v]) => `${fmt(v, dec(id), 2)} <small>${sym(id)}</small>`).join(" · ") : "—", "",
+      "The 1% fee from filled offers, all markets. It goes to the TalonHive treasury to keep the project running.");
+}
+
+function renderChart() {
+  const p = pair(), el = $("#chart");
+  const t = tradesOf(p).slice(-40), asks = asksOf(p), bids = bidsOf(p);
+  const head = `<div class="chart-head"><b>Price</b><span>${sym(p.quote)} per ${sym(p.base)}</span></div>`;
+  if (!t.length && !asks.length && !bids.length) { el.innerHTML = head + `<p class="chart-empty">The chart starts with the first trade.</p>`; return; }
+  // Drawn at its real width (one unit = one pixel) so labels stay readable on phones.
+  const W = Math.max(280, Math.round(el.clientWidth - 32) || 600), H = 170, L = 6, R = 78, T = 14, B = 24;
+  const pts = t.map((l) => ({ x: l.closedAt, y: Number(tradePrice(l, p)), l }));
+  const askY = asks.slice(0, 6).map((l) => Number(priceOf(l, p))), bidY = bids.slice(0, 6).map((l) => Number(priceOf(l, p)));
+  const ys = [...pts.map((q) => q.y), ...askY, ...bidY];
+  let lo = Math.min(...ys), hi = Math.max(...ys);
+  if (hi === lo) { hi = hi * 1.1 || 1; lo = lo * 0.9; }
+  const padY = (hi - lo) * 0.14; lo = Math.max(0, lo - padY); hi += padY;
+  const now = Date.now() / 1000, x0 = pts.length ? Math.min(pts[0].x, now - 3600) : now - 86400;
+  const X = (x) => L + ((x - x0) / (now - x0)) * (W - L - R), Y = (y) => T + ((hi - y) / (hi - lo)) * (H - T - B);
+  const lbl = (v) => fmt(BigInt(Math.round(v)), dec(p.quote), 6);
+  const when = (s) => new Date(s * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const line = pts.length > 1 ? `<path class="c-line" d="${pts.map((q, i) => `${i ? "L" : "M"}${X(q.x).toFixed(1)},${Y(q.y).toFixed(1)}`).join(" ")}"/>` : "";
+  const level = (y, cls, text) => `<line class="${cls}" x1="${L}" x2="${W - R + 4}" y1="${Y(y).toFixed(1)}" y2="${Y(y).toFixed(1)}"/>
+    <text class="c-tag ${cls}" x="${W - R + 8}" y="${(Y(y) + 4).toFixed(1)}">${text}</text>`;
+  const ticks = (list, cls) => list.slice(1).map((y) => `<line class="${cls} tick" x1="${W - R - 10}" x2="${W - R + 2}" y1="${Y(y).toFixed(1)}" y2="${Y(y).toFixed(1)}"/>`).join("");
+  el.innerHTML = head + `
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Recent trade prices with the cheapest offer for sale and the best buyer">
+      <line class="c-axis" x1="${L}" x2="${W - R + 4}" y1="${H - B}" y2="${H - B}"/>
+      ${bidY.length ? level(bidY[0], "c-bid", lbl(bidY[0])) + ticks(bidY, "c-bid") : ""}
+      ${askY.length ? level(askY[0], "c-ask", lbl(askY[0])) + ticks(askY, "c-ask") : ""}
+      ${line}
+      ${pts.map((q) => `<g class="c-pt" data-lot="${q.l.lot}" tabindex="0" role="button" aria-label="Trade at ${lbl(q.y)}, ${when(q.x)}"><circle class="c-hit" cx="${X(q.x).toFixed(1)}" cy="${Y(q.y).toFixed(1)}" r="12"/><circle class="c-dot" cx="${X(q.x).toFixed(1)}" cy="${Y(q.y).toFixed(1)}" r="4"/><title>${lbl(q.y)} ${sym(p.quote)} · ${when(q.x)}</title></g>`).join("")}
+      <text class="c-time" x="${L}" y="${H - 6}">${pts.length ? when(x0) : "24 h ago"}</text>
+      <text class="c-time" x="${W - R}" y="${H - 6}" text-anchor="end">now</text>
+    </svg>
+    <div class="chart-legend"><span><i class="lg-trade"></i>Trades</span>${askY.length ? `<span><i class="lg-ask"></i>Cheapest for sale</span>` : ""}${bidY.length ? `<span><i class="lg-bid"></i>Best buyer</span>` : ""}${!pts.length ? `<span>No trades yet</span>` : ""}</div>`;
+  $$(".c-pt", el).forEach((g) => {
+    const open = () => openSheet(viewProof(g.dataset.lot));
+    g.addEventListener("click", open);
+    g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } });
+  });
+}
+
+// ---------- activity (every offer and trade, like a block explorer for the Swap) ----------
+function activityEvents() {
+  const ev = [];
+  for (const l of lots) {
+    if (!visible(l) || !pairOf(l)) continue;
+    ev.push({ kind: "listed", at: l.createdAt, l });
+    if (l.closedAt && (l.outcome === "filled" || l.outcome === "cancelled")) ev.push({ kind: l.outcome, at: l.closedAt, l });
+  }
+  return ev.sort((a, b) => b.at - a.at);
+}
+function eventRow(e) {
+  const l = e.l, p = pairOf(l), sellsBase = l.giveId === p.base, maker = who(l.maker, mineLot(l));
+  const filled = e.kind === "filled";
+  const base = filled ? tradeBase(l, p) : sellsBase ? l.giveAmount : l.wantAmount;
+  const price = filled ? tradePrice(l, p) : px(l, p, l.wantAmount);
+  const taker = who(l.taker);
+  const [tag, main, sub] = {
+    filled: [`<span class="tag buy">Trade</span>`, `${fmt(base, dec(p.base))} ${sym(p.base)} for ${amt(tradeQuote(l, p), p.quote)}`,
+      sellsBase ? `${maker} sold to ${taker}` : `${taker} sold to ${maker}`],
+    listed: [`<span class="tag open">New offer</span>`, `${sellsBase ? "Selling" : "Buying"} ${fmt(base, dec(p.base))} ${sym(p.base)}`,
+      `${maker}${isDrop(l) ? " · drop offer, lowest price" : ""}${l.takerId ? " · private" : ""}`],
+    cancelled: [`<span class="tag done">Cancelled</span>`, `${sellsBase ? "Selling" : "Buying"} ${fmt(base, dec(p.base))} ${sym(p.base)}`, `${maker} took it back`],
+  }[e.kind];
+  return `<li class="row" data-lot="${l.lot}" tabindex="0" role="button" aria-label="${esc(main)}, ${esc(sub)}. Check it on chain">
+    <span class="coins">${coin(sellsBase ? p.base : p.quote)}${coin(sellsBase ? p.quote : p.base)}</span>
+    <span class="row-main"><b>${esc(main)}</b><span>${esc(sub)} · ${ago(e.at)}</span></span>
+    <span class="row-end"><b>${fmt(price, dec(p.quote), 6)}</b><small>${sym(p.quote)} each</small><br>${tag}</span></li>`;
+}
+function viewActivity() {
+  let kind = "all", market = -1;
+  const SHOW = 60;
+  const view = {
+    title: "Activity",
+    html: () => `<p class="note" style="margin:0 0 12px;color:var(--ink-2)">Every offer and trade on TalonHive Swap, read straight from the blockchain. Tap one to check it yourself.</p>
+      <div class="chips mini" id="act-kind"></div><div class="chips mini" id="act-market" style="margin:8px 0 6px"></div>
+      <ul class="rows" id="act-rows"></ul><p class="note" id="act-note"></p>`,
+    bind: (r) => view.live(r),
+    live: (r) => {
+      if (!$("#act-rows", r)) return;
+      const all = activityEvents().filter((e) => market < 0 || pairOf(e.l) === PAIRS[market]);
+      const n = (k) => all.filter((e) => e.kind === k).length;
+      $("#act-kind", r).innerHTML = [["all", `All (${all.length})`], ["filled", `Trades (${n("filled")})`], ["listed", `New offers (${n("listed")})`], ["cancelled", `Cancelled (${n("cancelled")})`]]
+        .map(([v, t]) => `<button type="button" data-k="${v}" aria-pressed="${kind === v}">${t}</button>`).join("");
+      $("#act-market", r).innerHTML = [[-1, "All markets"], ...PAIRS.map((q, i) => [i, `${sym(q.base)} / ${sym(q.quote)}`])]
+        .map(([v, t]) => `<button type="button" data-m="${v}" aria-pressed="${market === v}">${t}</button>`).join("");
+      const list = all.filter((e) => kind === "all" || e.kind === kind);
+      $("#act-rows", r).innerHTML = list.length ? list.slice(0, SHOW).map(eventRow).join("")
+        : `<li class="empty-state"><b>Nothing here yet</b>${loaded ? "Offers and trades show up here as soon as they're on chain." : "Reading the chain…"}</li>`;
+      $("#act-note", r).textContent = `${list.length > SHOW ? `Showing the newest ${SHOW}. ` : ""}From the newest ${EVENTS_TO_SCAN} offers on the TalonHive Swap factory.`;
+      $$("[data-k]", r).forEach((b) => b.addEventListener("click", () => { kind = b.dataset.k; view.live(r); }));
+      $$("[data-m]", r).forEach((b) => b.addEventListener("click", () => { market = Number(b.dataset.m); view.live(r); }));
+      $$(".row", r).forEach((row) => row.addEventListener("click", () => push(viewProof(row.dataset.lot))));
+    },
+  };
+  return view;
+}
+
+// ---------- how it works ----------
+function viewHow() {
+  return {
+    title: "How it works",
+    html: () => `
+      <p class="note" style="margin:0 0 4px;color:var(--ink-2)">TalonHive Swap is a market for ${PAIRS.map((q) => `${sym(q.base)}/${sym(q.quote)}`).join(" and ")} with no middleman. Each offer is its own small contract on Acki Nacki.</p>
+      <h4 class="proof-h">Buying</h4>
+      <ol class="steps" style="margin-top:0">
+        <li><span>Pick an offer. The card shows exactly what you pay and what you get.</span></li>
+        <li><span>Send that amount from your Acki Nacki Wallet to the offer's address, as a normal transfer.</span></li>
+        <li><span>The offer sends you the coins in the same transaction. If someone was faster, or the offer ended, your payment comes back on its own.</span></li>
+      </ol>
+      <h4 class="proof-h">Selling (or buying at your own price)</h4>
+      <ol class="steps" style="margin-top:0">
+        <li><span>Set the amount, the price and how long it stays open. A drop offer starts high and falls to your lowest price.</span></li>
+        <li><span>Send your coins to the new offer, as a normal transfer. They wait in the offer's own contract, not with us.</span></li>
+        <li><span>When someone takes it you're paid automatically, minus the ${Number(FEE_BPS) / 100}% fee. Until then you can cancel and get everything back.</span></li>
+      </ol>
+      <h4 class="proof-h">Why it's safe</h4>
+      <ul class="proof">
+        <li class="proof-ok">${ICON.check}<span><b>Nobody holds your coins.</b> An offer can only pay its seller, its buyer, or the ${Number(FEE_BPS) / 100}% fee. There's no admin key and no upgrade, so not even TalonHive can move them.</span></li>
+        <li class="proof-ok">${ICON.check}<span><b>All or nothing.</b> You get the whole amount, or your payment comes back.</span></li>
+        <li class="proof-ok">${ICON.check}<span><b>Check it yourself.</b> Every offer has a "Check this offer" page that reads the chain directly: its code, its balance, every transfer.</span></li>
+        <li class="proof-ok">${ICON.check}<span><b>No keys, ever.</b> This page never asks for your seed phrase or keys, and never touches your wallet. You send every transfer yourself.</span></li>
+      </ul>
+      <h4 class="proof-h">Fees</h4>
+      <p class="note" style="margin:0;color:var(--ink-2)">${Number(FEE_BPS) / 100}% of the price, paid by the offer's creator out of what they receive. Buyers pay exactly the price shown. Fees go to the TalonHive treasury to keep the project running.</p>
+      <h4 class="proof-h">Good to know</h4>
+      <p class="note" style="margin:0;color:var(--ink-2)">The contracts passed every on-chain test but haven't had an independent audit yet. Trades are public on the blockchain, like every Acki Nacki transfer; this site shows nicknames, not wallet addresses.</p>
+      <button class="btn ghost block" style="margin-top:16px" id="how-activity">See every trade</button>`,
+    bind: (r) => $("#how-activity", r).addEventListener("click", () => push(viewActivity())),
+  };
+}
+
+// ---------- share ----------
+async function shareOffer(l) {
+  const url = shareLink(l.lot);
+  const text = `${amt(l.giveAmount, l.giveId)} for ${amt(l.status === "open" ? wantToPay(l) : l.wantAmount, l.wantId)} on TalonHive Swap`;
+  if (navigator.share) {
+    try { await navigator.share({ title: "TalonHive Swap offer", text, url }); return; } catch (e) { if (e?.name === "AbortError") return; }
+  }
+  try { await navigator.clipboard.writeText(url); toast("Link copied"); } catch { toast("Copy this link: " + url); }
+}
+
 // ---------- sheet navigation ----------
 const views = [];
 let current = null;
@@ -324,6 +535,7 @@ function show(view) {
   $("#sheet-back").hidden = views.length === 0;
   $("#sheet-body").innerHTML = view.html();
   view.bind?.($("#sheet-body"));
+  $$("[data-how]", $("#sheet-body")).forEach((b) => b.addEventListener("click", () => push(viewHow())));
 }
 function closeSheet() { $("#sheet").close(); current = null; views.length = 0; }
 function refreshSheet() { if (current?.live && $("#sheet").open) current.live($("#sheet-body")); }
@@ -520,6 +732,7 @@ function viewTake(lotHex) {
           <div class="sub">That's ${fmt(paidPrice, dec(p.quote), 6)} ${sym(p.quote)} per ${sym(p.base)}.${open ? " You get all of it, or your payment comes back: nothing can be half done." : ""}</div>
           ${drop ? `<div class="sub" id="take-drop">${esc(drop.text)}</div><div class="dropbar" aria-hidden="true"><i id="take-dropbar" style="width:${drop.pct.toFixed(1)}%"></i></div>` : ""}
         </div>
+        ${open ? `<div class="share-row"><button type="button" class="btn ghost" id="take-share">${ICON.share}Share this offer</button><button type="button" class="linkbtn" data-how>How does this work?</button></div>` : ""}
         <div class="sum">
           <div class="sum-row"><span>Offered by</span><b style="font-size:14px">${person(l.maker, mineLot(l))}</b></div>
           <div class="sum-row"><span>${open ? "Time left" : "Status"}</span><b style="font-size:14px">${open ? timeLeft(l.deadline).replace(" left", "") : ({ filled: "Filled", cancelled: "Cancelled" }[l.outcome] || (l.status === "expired" ? "Expired" : "Closed"))}</b></div>
@@ -538,7 +751,11 @@ function viewTake(lotHex) {
           <dt>Factory</dt><dd>${tapCode(F, 10, 8)}</dd>
         </dl></details></details>`;
     },
-    bind: (r) => { $("#take-proof", r)?.addEventListener("click", () => push(viewProof(lotHex))); view.live(r); },
+    bind: (r) => {
+      $("#take-proof", r)?.addEventListener("click", () => push(viewProof(lotHex)));
+      $("#take-share", r)?.addEventListener("click", () => { const l = find(); if (l) shareOffer(l); });
+      view.live(r);
+    },
     live: (r) => {
       const l = find(); const box = $("#take-live", r);
       if (!l || !box) return;
@@ -639,7 +856,7 @@ function viewList(pre = {}) {
       <div class="quote" id="f-quote"></div>
       <p class="err" id="f-err"></p>
       <button class="btn light block" id="f-go">Continue</button>
-      <p class="note">Next, this page opens your offer and shows where to send your coins, as a normal transfer from your wallet. They go straight into the offer's own contract, never to us.</p>`;
+      <p class="note">Next, this page opens your offer and shows where to send your coins, as a normal transfer from your wallet. They go straight into the offer's own contract, never to us. <button type="button" class="linkbtn" data-how>How does this work?</button></p>`;
     },
     bind: (r) => {
       const read = () => {
@@ -1054,6 +1271,16 @@ async function main() {
   $("#btn-sell").addEventListener("click", () => openSheet(viewSellChoice()));
   $("#btn-list").addEventListener("click", () => openSheet(viewList({ side: "sell" })));
   $("#btn-mine").addEventListener("click", () => openSheet(viewMine()));
+  $("#btn-activity").addEventListener("click", () => openSheet(viewActivity()));
+  let resizeT = 0;
+  window.addEventListener("resize", () => { clearTimeout(resizeT); resizeT = setTimeout(() => { if (loaded) renderChart(); }, 150); });
+  $("#trust-how").addEventListener("click", () => openSheet(viewHow()));
+  // Phone tab bar: Market just closes any sheet and scrolls up; the rest open their sheet.
+  $$("#tabbar [data-nav]").forEach((b) => b.addEventListener("click", () => {
+    const go = { market: () => { if ($("#sheet").open) closeSheet(); window.scrollTo({ top: 0, behavior: "smooth" }); },
+      activity: () => openSheet(viewActivity()), mine: () => openSheet(viewMine()), how: () => openSheet(viewHow()) }[b.dataset.nav];
+    go?.();
+  }));
   $("#btn-refresh").addEventListener("click", refresh);
   $("#sheet-close").addEventListener("click", closeSheet);
   $("#sheet-back").addEventListener("click", back);
