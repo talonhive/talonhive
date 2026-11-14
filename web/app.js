@@ -175,6 +175,21 @@ function ago(ts) {
   if (s < 86400) return `${Math.floor(s / 3600)} h ago`; return `${Math.floor(s / 86400)} d ago`;
 }
 const short = (hex) => `${hex.slice(0, 6)}…${hex.slice(-4)}`;
+/** "2 h 14 min", "45 min", "under a minute": time until ts. */
+function until(ts) {
+  const s = Math.floor(ts - Date.now() / 1000);
+  if (s < 60) return "under a minute";
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  return d ? `${d} d ${h} h` : h ? `${h} h ${m} min` : `${m} min`;
+}
+// The outcome card's drop line: where the price is now, where it ends, how long until then, and progress (0–100).
+function dropState(l) {
+  const now = Date.now() / 1000;
+  if (now >= l.dropEnd) return { text: `At its lowest price: ${amt(l.wantAmount, l.wantId)}.`, pct: 100 };
+  const pct = Math.max(0, Math.min(100, ((now - l.createdAt) / Math.max(1, l.dropEnd - l.createdAt)) * 100));
+  const when = new Date(l.dropEnd * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return { text: `Price falling: started at ${amt(l.wantStart, l.wantId)}, reaches ${amt(l.wantAmount, l.wantId)} at ${when} (in ${until(l.dropEnd)}).`, pct };
+}
 
 // ---------- friendly names (no raw addresses in front of people) ----------
 // A stable nickname derived from the wallet address: same wallet, same name; reveals nothing about the owner.
@@ -493,13 +508,21 @@ function viewTake(lotHex) {
       const p = pair();
       const addr = `0:${l.lot}`;
       view.title = l.giveId === p.base ? `Buy ${amt(l.giveAmount, l.giveId)}` : `Sell ${amt(l.wantAmount, l.wantId)}`;
+      const open = l.status === "open";
+      const drop = open && isDrop(l) ? dropState(l) : null;
+      const paid = open ? wantToPay(l) : l.wantAmount;     // the price per coin matches the amount shown
+      const b = 10n ** BigInt(dec(p.base));
+      const paidPrice = l.giveId === p.base ? (paid * b) / l.giveAmount : (l.giveAmount * b) / paid;
       return `
+        <div class="match">
+          <div class="k">${open ? "Your deal" : "This offer"}</div>
+          <div class="line">${open ? "Pay" : "Paid"} <b id="take-pay">${amt(paid, l.wantId)}</b><span class="arrow">→</span>${open ? "get" : "got"} <b>${amt(l.giveAmount, l.giveId)}</b></div>
+          <div class="sub">That's ${fmt(paidPrice, dec(p.quote), 6)} ${sym(p.quote)} per ${sym(p.base)}.${open ? " You get all of it, or your payment comes back: nothing can be half done." : ""}</div>
+          ${drop ? `<div class="sub" id="take-drop">${esc(drop.text)}</div><div class="dropbar" aria-hidden="true"><i id="take-dropbar" style="width:${drop.pct.toFixed(1)}%"></i></div>` : ""}
+        </div>
         <div class="sum">
-          <div class="sum-row"><span>${coin(l.wantId)}You pay</span><b id="take-pay">${amt(l.status === "open" ? wantToPay(l) : l.wantAmount, l.wantId)}</b></div>
-          <div class="sum-row"><span>${coin(l.giveId)}You get</span><b>${amt(l.giveAmount, l.giveId)}</b></div>
-          <div class="sum-row"><span>Price</span><b style="font-size:14px">${fmt(priceOf(l, p), dec(p.quote), 6)} ${sym(p.quote)} per ${sym(p.base)}</b></div>
-          ${isDrop(l) ? `<div class="sum-row"><span>Drop offer</span><b style="font-size:13.5px;text-align:right">Started at ${amt(l.wantStart, l.wantId)}, falls to ${amt(l.wantAmount, l.wantId)} by ${new Date(l.dropEnd * 1000).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}</b></div>` : ""}
           <div class="sum-row"><span>Offered by</span><b style="font-size:14px">${person(l.maker, mineLot(l))}</b></div>
+          <div class="sum-row"><span>${open ? "Time left" : "Status"}</span><b style="font-size:14px">${open ? timeLeft(l.deadline).replace(" left", "") : ({ filled: "Filled", cancelled: "Cancelled" }[l.outcome] || (l.status === "expired" ? "Expired" : "Closed"))}</b></div>
         </div>
         <div id="take-live"></div>
         <details class="more"><summary>Offer details</summary><dl>
@@ -528,6 +551,8 @@ function viewTake(lotHex) {
             const pay = fmt(wantToPay(l), dec(l.wantId), 9);
             $("#pay-amt", box).textContent = pay; $("#pay-copy", box).dataset.copy = pay.replace(/,/g, "");
             const top = $("#take-pay", r); if (top) top.textContent = amt(wantToPay(l), l.wantId);
+            const d = dropState(l), dt = $("#take-drop", r), db = $("#take-dropbar", r);
+            if (dt) dt.textContent = d.text; if (db) db.style.width = `${d.pct.toFixed(1)}%`;
           }
           return;
         }
@@ -582,6 +607,8 @@ function viewTake(lotHex) {
   return view;
 }
 
+// Quick amounts of NACKL for a new offer (the smallest offer is 1,000 NACKL).
+const AMOUNT_CHIPS = [[1000, "1k"], [5000, "5k"], [10000, "10k"], [50000, "50k"], [100000, "100k"]];
 function viewList(pre = {}) {
   const s = {
     side: pre.side || "sell", quote: pair().quote, amount: "", price: "", hours: 24,
@@ -599,10 +626,12 @@ function viewList(pre = {}) {
         <button data-side="buy" aria-pressed="${s.side === "buy"}">Buy NACKL</button>
       </div>
       <div class="field"><span>Paid in</span><div class="chips" id="q-chips">${PAIRS.map((p) => `<button data-q="${p.quote}" aria-pressed="${s.quote === p.quote}">${sym(p.quote)}</button>`).join("")}</div></div>
-      <label class="field"><span>Amount of NACKL</span><div class="input"><input id="f-amount" inputmode="decimal" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="1,000" value="${esc(s.amount)}" autocomplete="off"><em>NACKL</em></div></label>
+      <label class="field"><span>Amount of NACKL</span><div class="input"><input id="f-amount" inputmode="decimal" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="1,000" value="${esc(s.amount)}" autocomplete="off"><em>NACKL</em></div>
+        <div class="chips mini" id="a-chips">${AMOUNT_CHIPS.map(([v, t]) => `<button type="button" data-amt="${v}" aria-pressed="false">${t}</button>`).join("")}</div></label>
       ${s.side === "sell" ? `<div class="field"><span>Price</span><div class="chips">${chips("kind", s.kind, [["fixed", "Fixed"], ["drop", "Drop: starts high, falls"]])}</div></div>` : ""}
       ${drop ? `<label class="field"><span>Start price per NACKL</span><div class="input"><input id="f-start" inputmode="decimal" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="0.01" value="${esc(s.start)}" autocomplete="off"><em>${sym(s.quote)}</em></div></label>` : ""}
-      <label class="field"><span>${drop ? "Lowest price per NACKL" : "Price per NACKL"} <button type="button" id="f-best"></button></span><div class="input"><input id="f-price" inputmode="decimal" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="0.005" value="${esc(s.price)}" autocomplete="off"><em>${sym(s.quote)}</em></div></label>
+      <label class="field"><span>${drop ? "Lowest price per NACKL" : "Price per NACKL"} <button type="button" id="f-best"></button></span><div class="input"><input id="f-price" inputmode="decimal" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="0.005" value="${esc(s.price)}" autocomplete="off"><em>${sym(s.quote)}</em></div>
+        <div class="chips mini" id="p-chips"></div></label>
       ${drop ? `<div class="field"><span>Price falls to the lowest over</span><div class="chips">${chips("dh", s.dropHours, [[1, "1 hour"], [6, "6 hours"], [24, "1 day"], [72, "3 days"]])}</div></div>` : ""}
       <div class="field"><span>Offer stays open for</span><div class="chips" id="h-chips">${chips("h", s.hours, [[1, "1 hour"], [24, "1 day"], [72, "3 days"], [167, "7 days"]])}</div></div>
       <div class="field"><span>Who can ${s.side === "sell" ? "buy" : "sell"}</span><div class="chips">${chips("who", s.who, [["anyone", "Anyone"], ["one", "One person"]])}</div></div>
@@ -624,15 +653,37 @@ function viewList(pre = {}) {
         const p = PAIRS.find((x) => x.quote === s.quote);
         const best = s.side === "sell" ? asksOf(p)[0] : bidsOf(p)[0];
         const bestBtn = $("#f-best", r);
-        bestBtn.textContent = best ? `Market: ${fmt(priceOf(best, p), dec(p.quote), 6)}` : "";
+        bestBtn.textContent = best ? `Best now: ${fmt(priceOf(best, p), dec(p.quote), 6)}` : "";
         bestBtn.onclick = () => { $("#f-price", r).value = fmt(priceOf(best, p), dec(p.quote), 9).replace(/,/g, ""); recalc(); };
+        // Amount chips: lit when the box holds that amount.
+        let typed = null; try { typed = parseUnits(s.amount, dec(p.base)); } catch { /* not a number yet */ }
+        $$("[data-amt]", r).forEach((b) => b.setAttribute("aria-pressed", String(typed !== null && typed === BigInt(b.dataset.amt) * 10n ** BigInt(dec(p.base)))));
+        // Price chips: steps from the best competing offer. Selling: a bit under it sells first, above it waits for
+        // more. Buying: a bit over the best bid gets filled first. None when the market is empty.
+        const pc = $("#p-chips", r);
+        if (best) {
+          const m = priceOf(best, p);
+          const steps = s.side === "sell" ? [-1, 0, 5, 10] : [-10, -5, 0, 1];
+          const at = (pct) => fmt((m * BigInt(10000 + pct * 100)) / 10000n, dec(p.quote), 9).replace(/,/g, "");
+          let cur = null; try { cur = parseUnits(s.price, dec(p.quote)); } catch { /* empty */ }
+          pc.innerHTML = steps.map((pct) => {
+            const v = at(pct);
+            const label = pct === 0 ? "Market" : `${pct > 0 ? "+" : "−"}${Math.abs(pct)}%`;
+            const hint = pct === 0 ? "Same as the best offer now" : (s.side === "sell") === (pct < 0) ? "Fills sooner" : "Waits for a better price";
+            return `<button type="button" data-px="${v}" title="${hint}" aria-pressed="${cur !== null && cur === parseUnits(v, dec(p.quote))}">${label}</button>`;
+          }).join("");
+          $$("[data-px]", pc).forEach((b) => b.addEventListener("click", () => { $("#f-price", r).value = b.dataset.px; recalc(); }));
+        } else pc.innerHTML = "";
         const q = computeOffer(s);
         const drop = q.ok && q.wantStart > q.wantAmount;
+        const verb = q.giveId === 1 ? "buys it" : "sells to you";
         $("#f-quote", r).innerHTML = q.ok ? `
-          <div class="sum-row"><span>${coin(q.giveId)}You put in</span><b>${amt(q.giveAmount, q.giveId)}</b></div>
-          <div class="sum-row"><span>${coin(q.wantId)}You receive</span><b>${drop
-            ? `${amt(q.wantStart - (q.wantStart * FEE_BPS) / 10000n, q.wantId)} falling to ${amt(q.wantAmount - q.fee, q.wantId)}`
-            : amt(q.wantAmount - q.fee, q.wantId)}</b></div>
+          <div class="match"><div class="k">Your deal</div>
+            <div class="line">Put in <b>${amt(q.giveAmount, q.giveId)}</b><span class="arrow">→</span>get <b>${amt((drop ? q.wantStart - (q.wantStart * FEE_BPS) / 10000n : q.wantAmount - q.fee), q.wantId)}</b></div>
+            <div class="sub">${drop
+              ? `when someone ${verb}. The price falls to ${amt(q.wantAmount - q.fee, q.wantId)} (after fee) over ${s.dropHours} h, then stays there.`
+              : `when someone ${verb}, after the ${Number(FEE_BPS) / 100}% fee.`} Until then you can cancel and get everything back.</div>
+          </div>
           <div class="sum-row"><span>Fee (${Number(FEE_BPS) / 100}%)</span><b style="font-size:14px">${drop ? "1% of the price paid" : amt(q.fee, q.wantId)}</b></div>`
           : `<div class="sum-row"><span>Enter an amount and a price to see what you'll receive.</span></div>`;
         $("#f-err", r).textContent = q.ok ? "" : (s.amount && s.price ? q.error : "");
@@ -643,6 +694,7 @@ function viewList(pre = {}) {
       }));
       pick("side", "side"); pick("q", "quote", true); pick("h", "hours", true);
       pick("kind", "kind"); pick("dh", "dropHours", true); pick("who", "who");
+      $$("[data-amt]", r).forEach((b) => b.addEventListener("click", () => { $("#f-amount", r).value = Number(b.dataset.amt).toLocaleString("en-US"); recalc(); }));
       ["#f-amount", "#f-price", "#f-start", "#f-buyer"].forEach((id) => $(id, r)?.addEventListener("input", recalc));
       $("#f-go", r).addEventListener("click", () => {
         const q = computeOffer(s);
